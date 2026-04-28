@@ -1,0 +1,14 @@
+services:
+  - type: "web"
+    name: "vertex-sacco-bot"
+    env: "python"
+    region: "oregon"
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "python bot.py"
+    plan: "free"
+    healthCheckPath: "/health"
+    envVars:
+      - key: BOT_TOKEN
+      - key: ADMIN_ID
+      - key: GROQ_API_KEY
+      - key: GROQ_MODEL

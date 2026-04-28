@@ -1,0 +1,12 @@
+.env
+google-service-account.json
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+.sixth/
+.DS_Store
+.vscode/
+node_modules/
