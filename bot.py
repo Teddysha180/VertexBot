@@ -65,9 +65,13 @@ BTN_SUPPORT_SEND = "✅ Send Message"
 BTN_SUPPORT_CANCEL = "❌ Cancel Message"
 BTN_MAIN_MENU = "🟢 Main Menu"
 
+STATE_REG_NAME = "reg_name"
+STATE_REG_PHONE = "reg_phone"
 STATE_CONTACT_ADMIN = "contact_admin"
 STATE_FEEDBACK = "feedback"
 SUPPORT_DRAFT_KEY = "support_draft"
+IS_REGISTERED_KEY = "is_registered"
+REG_DATA_NAME = "reg_data_name"
 
 
 FAQ_ITEMS = {
@@ -393,22 +397,47 @@ def memory_text(memory: deque[dict[str, str]]) -> str:
 
 
 async def save_to_google_sheets(name: str, phone: str, user_id: int, username: str) -> bool:
-    if not GOOGLE_SHEET_ID or not os.path.exists(CREDS_FILE):
-        logger.warning("Google Sheets config missing. Data not saved.")
+    json_str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if not GOOGLE_SHEET_ID or not json_str:
+        logger.warning("Google Sheets configuration missing (ID or JSON env var).")
         return False
 
     def _append():
         try:
-            creds = Credentials.from_service_account_file(CREDS_FILE, scopes=SHEETS_SCOPES)
+            creds_info = json.loads(json_str)
+            client_email = creds_info.get("client_email", "unknown")
+            scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+            creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
             client = gspread.authorize(creds)
-            sheet = client.open_by_key(GOOGLE_SHEET_ID).sheet1
-            # Appends: Name, Phone, UserID, Username, Timestamp
+            
+            sheet_id = GOOGLE_SHEET_ID
+            if "spreadsheets/d/" in sheet_id:
+                sheet_id = sheet_id.split("spreadsheets/d/")[1].split("/")[0]
+
+            # Use open_by_key and get the first sheet
+            spreadsheet = client.open_by_key(sheet_id)
+            sheet = spreadsheet.get_worksheet(0)
             from datetime import datetime
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            sheet.append_row([name, phone, str(user_id), f"@{username}" if username else "N/A", timestamp])
+            
+            # Matches your headers: timestamp | telegram_user_id | full_name | phone_number | telegram_username | registration_status
+            sheet.append_row([
+                timestamp, 
+                str(user_id), 
+                name, 
+                phone, 
+                f"@{username}" if username else "N/A", 
+                "registered"
+            ])
             return True
+        except gspread.exceptions.SpreadsheetNotFound:
+            logger.error("Google Sheet not found. Ensure ID is correct and %s has Editor access.", client_email)
+            return False
+        except gspread.exceptions.APIError as e:
+            logger.error("Google Sheets API Error: %s. Check permissions for %s", e, client_email)
+            return False
         except Exception as e:
-            logger.error("Failed to write to Google Sheets: %s", e)
+            logger.error("Unexpected error writing to Google Sheets: %s", e)
             return False
 
     return await asyncio.to_thread(_append)
@@ -1400,7 +1429,11 @@ def main() -> None:
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)
     maybe_start_render_health_server()
-    application.run_polling(timeout=TELEGRAM_POLL_TIMEOUT, allowed_updates=Update.ALL_TYPES)
+    application.run_polling(
+        timeout=TELEGRAM_POLL_TIMEOUT, 
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True
+    )
 
 
 if __name__ == "__main__":
