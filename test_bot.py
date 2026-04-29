@@ -50,7 +50,7 @@ def test_config() -> bool:
     if sheet_id:
         if "spreadsheets/d/" in sheet_id:
             clean_id = sheet_id.split("spreadsheets/d/")[1].split("/")[0]
-            print(f"GOOGLE_SHEET_ID configured (URL detected, extracted ID: {clean_id})")
+            print(f"GOOGLE_SHEET_ID configured (URL detected). Extracted ID for API: {clean_id}")
         else:
             print(f"GOOGLE_SHEET_ID configured: {sheet_id}")
     else:

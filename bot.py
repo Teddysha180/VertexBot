@@ -404,16 +404,17 @@ async def save_to_google_sheets(name: str, phone: str, user_id: int, username: s
 
     def _append():
         try:
-            creds_info = json.loads(json_str)
-            client_email = creds_info.get("client_email", "unknown")
+            service_account_info = json.loads(json_str)
+            client_email = service_account_info.get("client_email", "unknown email")
             scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-            creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
+            creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
             client = gspread.authorize(creds)
             
             sheet_id = GOOGLE_SHEET_ID
             if "spreadsheets/d/" in sheet_id:
                 sheet_id = sheet_id.split("spreadsheets/d/")[1].split("/")[0]
-
+            
+            logger.info("Attempting to save registration for %s to sheet %s", user_id, sheet_id)
             # Use open_by_key and get the first sheet
             spreadsheet = client.open_by_key(sheet_id)
             sheet = spreadsheet.get_worksheet(0)
@@ -431,13 +432,13 @@ async def save_to_google_sheets(name: str, phone: str, user_id: int, username: s
             ])
             return True
         except gspread.exceptions.SpreadsheetNotFound:
-            logger.error("Google Sheet not found. Ensure ID is correct and %s has Editor access.", client_email)
+            logger.error("404 Error: Google Sheet not found. Ensure %s has 'Editor' access to sheet ID: %s", client_email, sheet_id)
             return False
         except gspread.exceptions.APIError as e:
-            logger.error("Google Sheets API Error: %s. Check permissions for %s", e, client_email)
+            logger.error("API Error: %s. Check if %s has permission.", e, client_email)
             return False
         except Exception as e:
-            logger.error("Unexpected error writing to Google Sheets: %s", e)
+            logger.error("Unexpected error saving to Google Sheets: %s", e)
             return False
 
     return await asyncio.to_thread(_append)
@@ -828,6 +829,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 
 async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await is_user_registered(update, context):
+        return
     await show_home(update, context)
 
 
