@@ -26,7 +26,7 @@
       "hours": "Mon-Fri 8:30 AM - 5:30 PM, Sat 8:30 AM - 12:30 PM",
       "maps_url": "https://www.google.com/maps/search/?api=1&query=22+Area+Addis+Ababa+Ethiopia",
       "image_url": "assets/hq.jpg",
-      "video_url": "BAACAgQAAxkBAAIC..." 
+      "video_url": null
     },
     "branch_westlands": {
       "name": "Member Service Desk",

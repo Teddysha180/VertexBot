@@ -455,13 +455,10 @@ def summarize_message(message: Message) -> str:
         return message.caption
     if message.photo:
         # Returns the file_id of the highest resolution version of the photo
-        return f"FILE_ID:{message.photo[-1].file_id}"
         return f"PHOTO_ID:{message.photo[-1].file_id}"
     if message.video:
-        return "Video attachment"
         return f"VIDEO_ID:{message.video.file_id}"
     if message.document:
-        return f"Document: {message.document.file_name or 'file'}"
         return f"DOC_ID:{message.document.file_id}"
     if message.audio:
         return f"Audio: {message.audio.file_name or 'audio'}"
