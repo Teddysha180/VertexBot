@@ -456,10 +456,13 @@ def summarize_message(message: Message) -> str:
     if message.photo:
         # Returns the file_id of the highest resolution version of the photo
         return f"FILE_ID:{message.photo[-1].file_id}"
+        return f"PHOTO_ID:{message.photo[-1].file_id}"
     if message.video:
         return "Video attachment"
+        return f"VIDEO_ID:{message.video.file_id}"
     if message.document:
         return f"Document: {message.document.file_name or 'file'}"
+        return f"DOC_ID:{message.document.file_id}"
     if message.audio:
         return f"Audio: {message.audio.file_name or 'audio'}"
     if message.voice:
@@ -1188,6 +1191,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "There was an issue saving your registration. Our team has been notified, but you can try again or contact support.",
                 reply_markup=phone_registration_keyboard()
             )
+        return
+
+    # --- Admin File ID Tool Handling ---
+    if state == STATE_GET_FILE_ID:
+        if str(user.id) != ADMIN_ID:
+            context.user_data["state"] = None
+            return
+
+        file_id = None
+        m_type = "File"
+        
+        if message.photo:
+            file_id, m_type = message.photo[-1].file_id, "Photo"
+        elif message.video:
+            file_id, m_type = message.video.file_id, "Video"
+        elif message.document:
+            file_id, m_type = message.document.file_id, "Document"
+        elif message.audio:
+            file_id, m_type = message.audio.file_id, "Audio"
+        elif message.voice:
+            file_id, m_type = message.voice.file_id, "Voice"
+
+        if file_id:
+            await message.reply_text(
+                f"✅ <b>{m_type} ID Retrieved:</b>\n\n<code>{file_id}</code>\n\n"
+                "Copy this ID into your <code>content.json</code>.",
+                parse_mode=ParseMode.HTML,
+                reply_markup=admin_dashboard_inline()
+            )
+        else:
+            await message.reply_text("❌ No media detected. Please upload a photo, video, or document.")
+        
+        context.user_data["state"] = None
         return
 
     # --- Guard: Prevent use if not registered ---
