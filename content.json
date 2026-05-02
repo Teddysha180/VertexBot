@@ -63,6 +63,7 @@
     "welcome_registration": "To provide you with secure and personalized financial services, we need to register your profile.",
     "welcome_home": "Welcome to our official digital portal. Experience the <b>Vertex Green Brand</b> through simplified member services and financial growth.",
     "ai_assistant_intro": "Ask any question in your own words. The assistant will reply naturally using Vertex SACCO knowledge about membership, savings, loans, office details, and general SACCO guidance.",
-    "admin_dashboard_welcome": "Welcome back, Admin. Use this panel to monitor registrations and access the central database."
+    "admin_dashboard_welcome": "Welcome back, Admin. Use this panel to monitor registrations and access the central database.",
+    "ai_fallback_message": "I am currently optimizing my financial databases. Please rephrase your inquiry in a moment, or reach out to our support desk for immediate assistance."
   }
 }

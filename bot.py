@@ -62,12 +62,13 @@ CONTENT = {}
 def load_content():
     global CONTENT
     try:
-        if os.path.exists(CONTENT_FILE):
-            with open(CONTENT_FILE, 'r', encoding='utf-8') as f:
+        abs_path = os.path.abspath(CONTENT_FILE)
+        if os.path.exists(abs_path):
+            with open(abs_path, 'r', encoding='utf-8') as f:
                 CONTENT = json.load(f)
-                logger.info("Content configuration loaded successfully.")
+                logger.info("Content configuration loaded successfully from %s. Keys: %s", abs_path, list(CONTENT.keys()))
         else:
-            logger.error(f"Critical: {CONTENT_FILE} not found. Bot may lack necessary text.")
+            logger.error("Critical: Content file not found at %s", abs_path)
     except Exception as e:
         logger.error(f"Failed to load content: {e}")
 
@@ -477,7 +478,10 @@ AI_MEMORY_REFERENCES = {"it", "that", "this", "they", "there"}
 
 def build_ai_answer(user_text: str, memory_summary: str = "") -> str:
     # Fallback response from content config
-    return CONTENT.get("build_ai_answer_fallback", "I specialize in Vertex SACCO's financial ecosystem. Ask me anything regarding these sectors.")
+    fallback = CONTENT.get("ui_texts", {}).get("ai_fallback_message")
+    if fallback:
+        return fallback
+    return "⚠️ Configuration Error: Groq API failed AND content.json is missing or invalid. Please check Render logs."
 
 
 async def groq_chat_completion(messages: list[dict[str, str]]) -> Optional[str]:
@@ -507,10 +511,14 @@ async def groq_chat_completion(messages: list[dict[str, str]]) -> Optional[str]:
         try:
             with request.urlopen(req, timeout=25) as response:
                 data = json.loads(response.read().decode("utf-8"))
-                return data["choices"][0]["message"]["content"].strip()
+                reply = data["choices"][0]["message"]["content"].strip()
+                if not reply:
+                    logger.warning("Groq returned an empty response.")
+                    return None
+                return reply
         except error.HTTPError as e:
             error_body = e.read().decode("utf-8")
-            logger.error("Groq API HTTP Error %s: %s", e.code, error_body)
+            logger.error("Groq API Error (HTTP %s): %s", e.code, error_body)
             return None
         except error.URLError as e:
             logger.error("Groq API URL Error: %s", e.reason)
@@ -518,8 +526,8 @@ async def groq_chat_completion(messages: list[dict[str, str]]) -> Optional[str]:
         except json.JSONDecodeError:
             logger.error("Groq API returned invalid JSON.")
             return None
-        except (error.URLError, error.HTTPError, KeyError, IndexError, TimeoutError, json.JSONDecodeError) as exc:
-            logger.warning("Groq request failed: %s", exc)
+        except Exception as exc:
+            logger.warning("Groq request failed: %s (%s)", exc, type(exc).__name__)
             return None
 
     return await asyncio.to_thread(_send)
@@ -1314,6 +1322,13 @@ def main() -> None:
     load_content()
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is missing. Set it in your .env file.")
+
+    # Immediate visibility for Render logs
+    key_status = "✅ CONFIGURED" if GROQ_API_KEY else "❌ MISSING (AI will not work)"
+    logger.info("=== Bot Initialization ===")
+    logger.info("GROQ_API_KEY: %s", key_status)
+    logger.info("GROQ_MODEL:   %s", GROQ_MODEL)
+    logger.info("==========================")
 
     if GROQ_API_KEY:
         logger.info("Groq API key detected. Vertex SACCO AI brain is enabled with conversation memory.")
