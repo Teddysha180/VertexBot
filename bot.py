@@ -483,23 +483,24 @@ def build_ai_answer(user_text: str, memory_summary: str = "") -> str:
     """Restored intelligent fallback that uses content.json to answer when AI is down."""
     text = " ".join(user_text.lower().split())
     words = set(normalize_words(user_text))
-    
+
     if not text:
         return "Please send your question and I will help."
 
     # 1. GREETINGS
     if words & AI_GREETING_WORDS:
-        return "Welcome to Vertex SACCO. I'm here to provide the financial insights you need. What's on your mind?"
+        return "Hello. Welcome to Vertex SACCO. I'm here to provide the financial insights you need. How may I assist you today?"
 
-    # 2. FAQ & SERVICES LOOKUP (Smart Fallback)
-    if any(term in text for term in ["loan", "borrow", "credit", "finance"]):
-        loan_info = CONTENT.get("services", {}).get("service_loans", ["Loan Services", ""])
-        return f"<b>{loan_info[0]}</b>: {loan_info[1]}"
+    # 2. DYNAMIC CONTENT LOOKUP (Search FAQs and Services)
+    # This checks if the user's question matches any categories in content.json
+    for category in ["faq", "services"]:
+        cat_data = CONTENT.get(category, {})
+        for key, data in cat_data.items():
+            # Check if keyword is in the question
+            title = data[0].lower()
+            if any(word in text for word in title.split()) or key.split('_')[-1] in text:
+                return f"<b>{data[0]}</b>\n\n{data[1]}"
 
-    if any(term in text for term in ["save", "savings", "deposit"]):
-        save_info = CONTENT.get("services", {}).get("service_savings", ["Savings Services", ""])
-        return f"<b>{save_info[0]}</b>: {save_info[1]}"
-        
     if any(term in text for term in ["join", "member", "register"]):
         join_info = CONTENT.get("faq", {}).get("faq_join", ["", ""])
         return join_info[1] if join_info[1] else "Visit any branch with your ID to join."
@@ -510,7 +511,7 @@ def build_ai_answer(user_text: str, memory_summary: str = "") -> str:
 
 
 async def groq_chat_completion(messages: list[dict[str, str]]) -> Optional[str]:
-    if not GROQ_API_KEY:
+    if not GROQ_API_KEY or GROQ_API_KEY.startswith("your_"):
         return None
 
     payload = json.dumps(
@@ -528,6 +529,8 @@ async def groq_chat_completion(messages: list[dict[str, str]]) -> Optional[str]:
         headers={
             "Authorization": f"Bearer {GROQ_API_KEY}",
             "Content-Type": "application/json",
+            "User-Agent": "VertexSaccoBot/1.0",
+            "Accept": "application/json",
         },
         method="POST",
     )
@@ -536,23 +539,34 @@ async def groq_chat_completion(messages: list[dict[str, str]]) -> Optional[str]:
         try:
             with request.urlopen(req, timeout=25) as response:
                 data = json.loads(response.read().decode("utf-8"))
-                reply = data["choices"][0]["message"]["content"].strip()
-                if not reply:
-                    logger.warning("Groq returned an empty response.")
+                choices = data.get("choices", [])
+                if not choices:
                     return None
+
+                reply = choices[0].get("message", {}).get("content", "").strip()
+                if not reply:
+                    return None
+                
+                # Log successful usage for debugging
+                logger.info("Groq AI successfully generated a response (%d tokens).", data.get("usage", {}).get("total_tokens", 0))
                 return reply
         except error.HTTPError as e:
-            error_body = e.read().decode("utf-8")
-            logger.error("Groq API Error (HTTP %s): %s", e.code, error_body)
+            error_content = e.read().decode("utf-8")
+            if e.code == 401:
+                logger.error("Groq API Error: 401 Unauthorized. Verify your GROQ_API_KEY in environment variables.")
+            elif e.code == 404:
+                logger.error("Groq API Error: 404 Not Found. Check if the model '%s' is spelled correctly.", GROQ_MODEL)
+            else:
+                logger.error("Groq API Error (HTTP %s): %s", e.code, error_content)
             return None
         except error.URLError as e:
-            logger.error("Groq API URL Error: %s", e.reason)
+            logger.error("Groq Connection Error: %s. Ensure the bot environment has internet access.", e.reason)
             return None
         except json.JSONDecodeError:
-            logger.error("Groq API returned invalid JSON.")
+            logger.error("Groq API returned an invalid JSON response.")
             return None
         except Exception as exc:
-            logger.warning("Groq request failed: %s (%s)", exc, type(exc).__name__)
+            logger.error("Unexpected error during Groq API call: %s (%s)", exc, type(exc).__name__)
             return None
 
     return await asyncio.to_thread(_send)
@@ -1349,9 +1363,13 @@ def main() -> None:
         raise RuntimeError("BOT_TOKEN is missing. Set it in your .env file.")
 
     # Immediate visibility for Render logs
-    key_status = "✅ CONFIGURED" if GROQ_API_KEY else "❌ MISSING (AI will not work)"
+    key_present = bool(GROQ_API_KEY and not GROQ_API_KEY.startswith("your_"))
+    key_status = "✅ CONFIGURED" if key_present else "❌ MISSING OR PLACEHOLDER"
+    
     logger.info("=== Bot Initialization ===")
     logger.info("GROQ_API_KEY: %s", key_status)
+    if key_present:
+        logger.info("Key format check: Starts with 'gsk_'? %s", "Yes" if GROQ_API_KEY.startswith("gsk_") else "No")
     logger.info("GROQ_MODEL:   %s", GROQ_MODEL)
     logger.info("==========================")
 
