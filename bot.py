@@ -625,15 +625,34 @@ async def send_or_edit(
     query = update.callback_query
     if query:
         await safe_telegram_call(lambda: query.answer(), "answering callback query")
-        await safe_telegram_call(
-            lambda: query.edit_message_text(
-                text=text,
-                reply_markup=reply_markup,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=True,
-            ),
-            "editing callback message",
-        )
+
+        # Detect if the current message is a media message (photo or video).
+        # Telegram does not allow editing a media message into a text message.
+        is_media = bool(query.message and (query.message.photo or query.message.video))
+
+        if is_media:
+            # Delete the media message and send a fresh text message
+            await safe_telegram_call(lambda: query.message.delete(), "deleting media message")
+            await safe_telegram_call(
+                lambda: update.effective_chat.send_message(
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True,
+                ),
+                "sending new message after media delete",
+            )
+        else:
+            # Proceed with a standard text edit
+            await safe_telegram_call(
+                lambda: query.edit_message_text(
+                    text=text,
+                    reply_markup=reply_markup,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True,
+                ),
+                "editing callback message",
+            )
         return
 
     if update.effective_message:
