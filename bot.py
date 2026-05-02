@@ -95,6 +95,7 @@ STATE_REG_NAME = "reg_name"
 STATE_REG_PHONE = "reg_phone"
 STATE_CONTACT_ADMIN = "contact_admin"
 STATE_FEEDBACK = "feedback"
+STATE_GET_FILE_ID = "get_file_id"
 SUPPORT_DRAFT_KEY = "support_draft"
 IS_REGISTERED_KEY = "is_registered"
 REG_DATA_NAME = "reg_data_name"
@@ -183,6 +184,7 @@ def admin_dashboard_inline() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("📊 Registration Stats", callback_data="admin_stats")],
+            [InlineKeyboardButton("🆔 Get Telegram File ID", callback_data="admin_get_file_id")],
             [InlineKeyboardButton("📄 View Google Sheet", url=sheet_url)],
             [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")],
         ]
@@ -979,6 +981,15 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"<b>📊 Vertex SACCO Statistics</b>\n\nTotal Registered Members: <b>{count}</b>\n\n<i>Data is synced live from Google Sheets.</i>", 
             admin_dashboard_inline())
         return
+    if data == "admin_get_file_id":
+        if str(query.from_user.id) != ADMIN_ID:
+            await query.answer("⛔ Admin only.", show_alert=True)
+            return
+        context.user_data["state"] = STATE_GET_FILE_ID
+        await send_or_edit(update, 
+            "🆔 <b>File ID Tool Activated</b>\n\nPlease upload the photo, video, or document you want the ID for. I will reply with the specific Telegram File ID.",
+            back_home_inline())
+        return
     if data == "menu_faq":
         await show_faq(update, context)
         return
@@ -1020,37 +1031,48 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             f"<b>Hours:</b> {branch['hours']}\n\n"
             "Tap the map button below for directions."
         )
+        video_url = branch.get("video_url")
         image_url = branch.get("image_url")
 
-        if image_url:
+        if video_url or image_url:
             # Answer query and delete the previous menu message
             await safe_telegram_call(lambda: query.answer(), "answering branch selection")
             await safe_telegram_call(lambda: query.message.delete(), "deleting branch menu")
             
-            async def _send_branch_photo():
+            async def _send_branch_media():
                 # Check if it's a local file in your assets folder
                 base_path = os.path.dirname(os.path.abspath(__file__))
-                full_path = os.path.join(base_path, image_url)
+                media_path = video_url if video_url else image_url
+                full_path = os.path.join(base_path, media_path)
                 
-                if os.path.exists(full_path):
-                    with open(full_path, "rb") as photo_file:
+                # Check for local file existence
+                is_local = os.path.exists(full_path)
+                media_file = open(full_path, "rb") if is_local else media_path
+
+                try:
+                    if video_url:
+                        return await context.bot.send_video(
+                            chat_id=update.effective_chat.id,
+                            video=media_file,
+                            caption=caption,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=branch_actions(data),
+                            supports_streaming=True,
+                            write_timeout=TELEGRAM_MEDIA_WRITE_TIMEOUT
+                        )
+                    else:
                         return await context.bot.send_photo(
                             chat_id=update.effective_chat.id,
-                            photo=photo_file,
+                            photo=media_file,
                             caption=caption,
                             parse_mode=ParseMode.HTML,
                             reply_markup=branch_actions(data)
                         )
-                # Otherwise treat it as a URL or File ID
-                return await context.bot.send_photo(
-                    chat_id=update.effective_chat.id,
-                    photo=image_url,
-                    caption=caption,
-                    parse_mode=ParseMode.HTML,
-                    reply_markup=branch_actions(data)
-                )
+                finally:
+                    if is_local and hasattr(media_file, 'close'):
+                        media_file.close()
 
-            await safe_telegram_call(_send_branch_photo, "sending branch photo")
+            await safe_telegram_call(_send_branch_media, "sending branch media")
         else:
             await send_or_edit(update, caption, branch_actions(data))
         return
@@ -1440,6 +1462,10 @@ def main() -> None:
         drop_pending_updates=True
     )
 
-
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        logger.info("Bot stopped by user.")
+    except Exception as e:
+        logger.error("Fatal error: %s", e)
