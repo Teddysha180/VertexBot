@@ -1227,8 +1227,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     # --- Guard: Prevent use if not registered ---
-    if not context.user_data.get(IS_REGISTERED_KEY):
-        await start_registration(update, context)
+    if not await is_user_registered(update, context):
         return
     # -----------------------------
 
