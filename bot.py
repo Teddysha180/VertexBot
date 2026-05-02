@@ -61,6 +61,7 @@ BTN_BRANCHES = "📍 Branches"
 BTN_ADMIN = "📞 Support"
 BTN_FEEDBACK = "⭐ Feedback"
 BTN_CLEAR = "🔄 Clear Chat"
+BTN_ADMIN_PANEL = "🛠 Admin Dashboard"
 BTN_SUPPORT_SEND = "✅ Send Message"
 BTN_SUPPORT_CANCEL = "❌ Cancel Message"
 BTN_MAIN_MENU = "🟢 Main Menu"
@@ -168,40 +169,30 @@ TELEGRAM_MEDIA_WRITE_TIMEOUT = 60.0
 TELEGRAM_POLL_TIMEOUT = 30.0
 RENDER_HOST = "0.0.0.0"
 RENDER_DEFAULT_PORT = 10000
-VERTEX_AI_SYSTEM_PROMPT = """You are Vertex SACCO AI, the official digital assistant for Vertex SACCO Ltd in Ethiopia.
-Vertex SACCO branding is professional green.
+VERTEX_AI_SYSTEM_PROMPT = """You are the Vertex Financial Persona, the expert voice of Vertex SACCO. 
+Your essence is the Vertex "Green Brand": Sharp, Confident, and Highly Professional.
 
-You should sound like a real professional customer care agent, embodying the Vertex "Green Brand":
-- warm
-- calm
-- intelligent
-- natural
-- trustworthy
+You are not just a chatbot; you are a high-level financial consultant specialized in the SACCO sector and general wealth management.
 
-Your job is to understand the user's real intent and respond like a helpful human assistant, not like a scripted bot.
+Core Personality Traits:
+- CONFIDENT: You speak with authority. You know the financial sector inside out.
+- NOT ROBOTIC: Use natural, fluid language. Avoid repetitive "I can help with..." templates.
+- NOT TOO SOFT: You are helpful but firm and professional. Do not be overly apologetic or submissive.
+- INTELLIGENT: Understand the user's deep intent. If they ask about "borrowing," speak about "credit facilities" and "financial leverage" where appropriate.
 
-Main behavior:
-- answer naturally
-- keep answers clear and useful
-- do not repeat generic SACCO descriptions unless the user truly asks for them
-- do not answer with meta phrases like "I can help with..." unless the user is asking what you can do
-- if the user is casual, respond naturally but still professionally
-- if the user asks a broad question, try to give the most helpful answer you can
-- if the user is unclear, ask one short follow-up question
+Your Primary Role:
+1. Act as a powerful helper for any questions related to the financing sector, credit cooperatives, and wealth building.
+2. Provide insights into how Vertex SACCO empowers its members through disciplined savings and strategic loans.
+3. Maintain the professional "Green Brand" at all times—warm yet composed.
 
-Knowledge areas:
-- membership
-- savings
-- loans
-- SACCO accounts
-- office location
-- contact information
-- general SACCO education
+Rules of Engagement:
+- If a question is broad, provide a comprehensive, expert-level summary.
+- If the intent is unclear, ask a sharp, clarifying question.
+- Never invent specific financial rates; instead, explain the *logic* behind the rates and direct them to the office for today's exact numbers.
+- Default to English, but transition naturally to Amharic if the user initiates it.
 
-Important accuracy rules:
-- do not invent interest rates, approval guarantees, or hidden policies
-- if exact details are not known, say: "For accurate details, please contact the office directly."
-- do not overpromise
+Expertise Areas: 
+Cooperative finance, interest-bearing savings, credit appraisals, member-owned equity, and financial literacy.
 
 Official contact details:
 - 0991 44 44 11
@@ -216,29 +207,21 @@ Office:
 - around New Bata Complex
 - same building as Zemen Bank
 
-Trust approach:
-- if asked about safety or legitimacy, answer calmly and transparently
-- encourage office visit or direct contact for verification when appropriate
-
-Language:
-- default to English
-- if the user speaks Amharic, respond naturally in Amharic
-
-You are not a menu bot.
-You are not a repeating script.
-You are a real assistant representing Vertex SACCO.
-
-Answer based on meaning, context, and customer intent."""
+Speak as the human face of Vertex—composed, expert, and focused on member growth."""
 
 
-def home_keyboard() -> ReplyKeyboardMarkup:
+def home_keyboard(user_id: Optional[int] = None) -> ReplyKeyboardMarkup:
+    buttons = [
+        [BTN_AI, BTN_FAQ],
+        [BTN_SERVICES, BTN_BRANCHES],
+        [BTN_PROFILE, BTN_ADMIN],
+        [BTN_FEEDBACK],
+    ]
+    if str(user_id) == ADMIN_ID:
+        buttons.append([BTN_ADMIN_PANEL])
+
     return ReplyKeyboardMarkup(
-        [
-            [BTN_AI, BTN_FAQ],
-            [BTN_SERVICES, BTN_BRANCHES],
-            [BTN_PROFILE, BTN_ADMIN],
-            [BTN_FEEDBACK],
-        ],
+        buttons,
         resize_keyboard=True,
         is_persistent=True,
         input_field_placeholder="💚 Ask anything about Vertex SACCO",
@@ -284,6 +267,22 @@ def faq_inline() -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(f"🧾 {question}", callback_data=key)])
     rows.append([InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")])
     return InlineKeyboardMarkup(rows)
+
+
+def admin_dashboard_inline() -> InlineKeyboardMarkup:
+    sheet_id = GOOGLE_SHEET_ID
+    if "spreadsheets/d/" in sheet_id:
+        sheet_url = sheet_id
+    else:
+        sheet_url = f"https://docs.google.com/spreadsheets/d/{sheet_id}"
+    
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("📊 Registration Stats", callback_data="admin_stats")],
+            [InlineKeyboardButton("📄 View Google Sheet", url=sheet_url)],
+            [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")],
+        ]
+    )
 
 
 def services_inline() -> InlineKeyboardMarkup:
@@ -444,6 +443,84 @@ async def save_to_google_sheets(name: str, phone: str, user_id: int, username: s
     return await asyncio.to_thread(_append)
 
 
+async def save_feedback_to_sheet(user_id: int, name: str, rating: str = "N/A", comment: str = "N/A") -> bool:
+    """Saves feedback data to a dedicated 'Feedback' worksheet."""
+    json_str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if not GOOGLE_SHEET_ID or not json_str:
+        return False
+
+    def _work():
+        try:
+            service_account_info = json.loads(json_str)
+            creds = Credentials.from_service_account_info(service_account_info, scopes=["https://www.googleapis.com/auth/spreadsheets"])
+            client = gspread.authorize(creds)
+            
+            sheet_id = GOOGLE_SHEET_ID
+            if "spreadsheets/d/" in sheet_id:
+                sheet_id = sheet_id.split("spreadsheets/d/")[1].split("/")[0]
+            
+            spreadsheet = client.open_by_key(sheet_id)
+            
+            # Try to find a tab named 'Feedback'. 
+            # If not found, try to access the second worksheet (Sheet 2)
+            try:
+                worksheet = spreadsheet.worksheet("Feedback")
+            except gspread.exceptions.WorksheetNotFound:
+                try:
+                    worksheet = spreadsheet.get_worksheet(1)  # Index 1 is the second sheet
+                except Exception:
+                    # Create it if it doesn't exist at all
+                    worksheet = spreadsheet.add_worksheet(title="Feedback", rows="1000", cols="6")
+                    worksheet.append_row(["Timestamp", "User ID", "Full Name", "Rating", "Comment"])
+                    # Format the header
+                    worksheet.format("A1:E1", {"textFormat": {"bold": True}, "backgroundColor": {"green": 0.8, "red": 0.2, "blue": 0.2}})
+
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            
+            worksheet.append_row([
+                timestamp,
+                str(user_id),
+                name,
+                rating,
+                comment
+            ])
+            return True
+        except Exception as e:
+            logger.error("Error saving feedback: %s", e)
+            return False
+
+    return await asyncio.to_thread(_work)
+
+
+async def get_total_registrations() -> int:
+    json_str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+    if not GOOGLE_SHEET_ID or not json_str:
+        return 0
+
+    def _read():
+        try:
+            service_account_info = json.loads(json_str)
+            scopes = ["https://www.googleapis.com/auth/spreadsheets"]
+            creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
+            client = gspread.authorize(creds)
+            
+            sheet_id = GOOGLE_SHEET_ID
+            if "spreadsheets/d/" in sheet_id:
+                sheet_id = sheet_id.split("spreadsheets/d/")[1].split("/")[0]
+            
+            spreadsheet = client.open_by_key(sheet_id)
+            sheet = spreadsheet.get_worksheet(0)
+            # Subtract 1 for the header row
+            data = sheet.get_all_values()
+            return max(0, len(data) - 1)
+        except Exception as e:
+            logger.error("Error fetching stats: %s", e)
+            return 0
+
+    return await asyncio.to_thread(_read)
+
+
 def summarize_message(message: Message) -> str:
     if message.text:
         return message.text
@@ -477,169 +554,22 @@ AI_GREETING_WORDS = {"hi", "hello", "hey", "sup", "bro", "broo", "brow"}
 AI_THANKS_WORDS = {"thanks", "thank"}
 AI_MEMORY_REFERENCES = {"it", "that", "this", "they", "there"}
 
-AI_DIRECT_PATTERNS = [
-    (
-        {"bank", "sacco"},
-        {
-            "difference",
-            "different",
-            "similar",
-            "similarity",
-            "compare",
-            "comparison",
-            "vs",
-            "versus",
-        },
-        "A bank and a SACCO are both financial institutions, but they work differently. "
-        "A bank serves the general public as a commercial institution, while a SACCO is member-owned and mainly serves its members. "
-        "Both help people save money and access loans.",
-    ),
-    (
-        {"rate", "rates", "interest", "fees", "charges"},
-        set(),
-        "For exact rates, fees, or charges, please contact the office directly for current official information.",
-    ),
-    (
-        {"contact", "phone", "call", "number"},
-        set(),
-        "You can contact Vertex SACCO on 0991 44 44 11, 0991 44 44 22, 0991 44 44 88, or 0991 44 44 99.",
-    ),
-    (
-        {"office", "branch", "location", "address", "map", "where"},
-        set(),
-        "Vertex SACCO is located in Addis Ababa, 22 Area, near Golagul Building on the Getfam Hotel road, around New Bata Complex.",
-    ),
-]
-
-AI_TOPIC_KNOWLEDGE = [
-    {
-        "name": "capabilities",
-        "keywords": {"help", "assist", "faq"},
-        "phrases": {"what can you do", "what can i ask", "how can you help", "what do you know"},
-        "answer": "I can help explain Vertex SACCO membership, savings, loans, account opening, office location, and contact details. "
-        "You can ask in a natural way, and I will do my best to answer clearly.",
-    },
-    {
-        "name": "services",
-        "keywords": {"service", "services", "support"},
-        "phrases": {"explain service", "explain services", "what services do you offer", "tell me about services"},
-        "answer": "Vertex SACCO services generally include membership registration, savings services, loan support, SACCO account guidance, office assistance, and member follow-up support.",
-    },
-    {
-        "name": "sacco",
-        "keywords": {"cooperative"},
-        "phrases": {"what is sacco", "meaning of sacco", "define sacco"},
-        "answer": "A SACCO is a Savings and Credit Cooperative Organization that helps members save and access financial services through a cooperative system.",
-    },
-    {
-        "name": "bank",
-        "keywords": {"bank"},
-        "phrases": {"what is bank", "meaning of bank", "define bank"},
-        "answer": "A bank is a licensed financial institution that offers public services such as accounts, loans, transfers, and money management.",
-    },
-    {
-        "name": "saving",
-        "keywords": {"saving", "savings", "save", "deposit", "shares"},
-        "phrases": {"what is saving", "meaning of saving", "define saving"},
-        "answer": "Saving means putting money aside regularly. In a SACCO, savings help build financial discipline and may strengthen access to other services such as loans.",
-    },
-    {
-        "name": "saving_benefit",
-        "keywords": {"saving", "savings", "save", "use", "benefit", "importance"},
-        "phrases": {"use of saving", "benefit of saving", "why save", "importance of saving", "why is saving important"},
-        "answer": "The main use of saving in a SACCO is to build financial discipline, grow your funds over time, and strengthen your access to services such as loans. It also helps create a stronger financial base for future needs.",
-    },
-    {
-        "name": "loan",
-        "keywords": {"loan", "loans", "borrow", "credit", "repay"},
-        "phrases": {"what is loan", "define loan", "loan process"},
-        "answer": "A loan is money given to a member to be repaid over time. In general, loan access depends on membership standing, savings history, and the normal review process.",
-    },
-    {
-        "name": "membership",
-        "keywords": {"member", "membership", "join", "register"},
-        "phrases": {"how to join", "become a member", "open membership"},
-        "answer": "Membership usually starts by visiting the office, registering, and beginning a savings plan. Once registered, a member may become eligible for more SACCO services.",
-    },
-    {
-        "name": "account",
-        "keywords": {"account", "accounts", "open", "create"},
-        "phrases": {"open account", "create account"},
-        "answer": "A SACCO account is part of your member relationship with the organization. Usually, a person registers first and then the account is opened and activated.",
-    },
-    {
-        "name": "benefits",
-        "keywords": {"benefit", "benefits", "advantage", "advantages"},
-        "phrases": {"why join", "why save"},
-        "answer": "Common benefits include building a saving culture, improving access to loans, and receiving member-focused financial support.",
-    },
-    {
-        "name": "trust",
-        "keywords": {"safe", "trusted", "trust", "real", "legit"},
-        "phrases": {"is it safe", "can i trust"},
-        "answer": "Vertex SACCO is designed to serve its members through cooperative financial services. For full confidence, it is always good to verify official documents and office information directly.",
-    },
-]
-
-
-def score_topic(words: set[str], text: str, topic: dict[str, object]) -> int:
-    keyword_hits = sum(1 for keyword in topic["keywords"] if keyword in words)
-    phrase_hits = sum(3 for phrase in topic["phrases"] if phrase in text)
-    return keyword_hits + phrase_hits
-
-
 def build_ai_answer(user_text: str, memory_summary: str = "") -> str:
     text = user_text.lower().strip()
     words = set(normalize_words(user_text))
-    memory_lower = memory_summary.lower()
 
     if words & AI_GREETING_WORDS:
-        return "Hello. Welcome to Vertex SACCO. How may I assist you today?"
+        return "Welcome to Vertex SACCO. I'm here to provide the financial insights you need. What's on your mind?"
 
     if any(phrase in text for phrase in ["how are you", "how about you", "and you", "you?", "i'm good", "im good"]):
-        return "I am doing well, thank you. How may I assist you with Vertex SACCO today?"
+        return "I'm focused and ready to assist with your financial inquiries. How can I help you grow today?"
 
     if words & AI_THANKS_WORDS:
-        return "You are welcome. If you need anything else, I am here to help."
-
-    direct_match = next(
-        (
-            answer
-            for primary, secondary, answer in AI_DIRECT_PATTERNS
-            if primary & words and (not secondary or secondary & words or any(token in text for token in secondary))
-        ),
-        None,
-    )
-    if direct_match:
-        return direct_match
-
-    scored_topics = sorted(
-        ((score_topic(words, text, topic), topic) for topic in AI_TOPIC_KNOWLEDGE),
-        key=lambda item: item[0],
-        reverse=True,
-    )
-    matched_topics = [topic for score, topic in scored_topics if score > 0][:2]
-
-    if matched_topics:
-        primary = matched_topics[0]["answer"]
-        secondary = matched_topics[1]["answer"] if len(matched_topics) > 1 else ""
-
-        if matched_topics[0]["name"] == "services":
-            return primary
-
-        if matched_topics[0]["name"] == "saving_benefit":
-            return primary
-
-        reply = primary
-        if secondary and matched_topics[0]["name"] not in {"sacco", "bank"}:
-            reply = f"{primary} {secondary}"
-        if words & AI_MEMORY_REFERENCES and memory_lower:
-            return reply + " If you want, I can explain the same topic in a simpler way."
-        return reply
+        return "It's my pleasure. Let me know if you require further clarification on our financial services."
 
     return (
-        "I am here to help with Vertex SACCO membership, savings, loans, accounts, office guidance, and general SACCO questions. "
-        "Tell me what you want to know, and I will explain it as clearly as I can."
+        "I specialize in Vertex SACCO's financial ecosystem, including membership, strategic savings, and credit facilities. "
+        "Ask me anything regarding these sectors, and I'll provide the expert guidance you're looking for."
     )
 
 
@@ -777,6 +707,10 @@ async def start_registration(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def is_user_registered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    user = update.effective_user
+    if user and str(user.id) == ADMIN_ID:
+        return True
+
     if context.user_data.get(IS_REGISTERED_KEY):
         return True
     
@@ -799,11 +733,12 @@ async def show_home(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "How can we help you grow today?"
     )
 
+    u_id = update.effective_user.id if update.effective_user else None
     if update.callback_query:
         await safe_telegram_call(
             lambda: update.callback_query.message.reply_text(
                 text=welcome_text,
-                reply_markup=home_keyboard(),
+                reply_markup=home_keyboard(u_id),
                 parse_mode=ParseMode.HTML,
             ),
             "sending home screen from callback",
@@ -815,11 +750,31 @@ async def show_home(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await safe_telegram_call(
             lambda: update.effective_message.reply_text(
                 text=welcome_text,
-                reply_markup=home_keyboard(),
+                reply_markup=home_keyboard(u_id),
                 parse_mode=ParseMode.HTML,
             ),
             "sending home screen",
         )
+
+
+async def show_admin_dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or str(user.id) != ADMIN_ID:
+        if update.effective_message:
+            await update.effective_message.reply_text("⛔ Access Denied. This area is for administrators only.")
+        return
+
+    text = (
+        "<b>🛠 Vertex SACCO Admin Dashboard</b>\n\n"
+        "Welcome back, Admin. Use this panel to monitor registrations and access the central database.\n\n"
+        "🟢 <b>Active Model:</b> <code>" + html.escape(GROQ_MODEL) + "</code>"
+    )
+    await send_or_edit(update, text, admin_dashboard_inline())
+
+
+async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    # Admin bypasses registration check
+    await show_admin_dashboard(update, context)
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -839,10 +794,11 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     context.user_data.pop(CHAT_MEMORY_KEY, None)
     context.user_data["state"] = None
+    u_id = update.effective_user.id if update.effective_user else None
     if update.effective_message:
         await update.effective_message.reply_text( # Changed from ♻️ to 🔄
             "🔄 Your AI conversation has been cleared. You can start a fresh chat now.",
-            reply_markup=home_keyboard(),
+            reply_markup=home_keyboard(u_id),
         )
 
 
@@ -1052,6 +1008,14 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data == "menu_ai":
         await show_ai_assistant(update, context)
         return
+    if data == "admin_stats":
+        await query.answer("Calculating registrations...")
+        count = await get_total_registrations()
+        await send_or_edit(
+            update, 
+            f"<b>📊 Vertex SACCO Statistics</b>\n\nTotal Registered Members: <b>{count}</b>\n\n<i>Data is synced live from Google Sheets.</i>", 
+            admin_dashboard_inline())
+        return
     if data == "menu_faq":
         await show_faq(update, context)
         return
@@ -1098,6 +1062,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     if data.startswith("feedback|"):
         score = data.split("|", 1)[1]
+        user = update.effective_user
         context.user_data["state"] = None
         logger.info(
             "Feedback received | user_id=%s | score=%s",
@@ -1105,25 +1070,37 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             score,
         )
         stars = "★ " * int(score) + "☆ " * (5 - int(score))
-        frames = [
-            "<b>Recording your feedback</b>",
-            f"<b>{stars.strip()}</b>",
-            f"<b>Thank you for rating us {score}/5</b>",
-        ]
-        for frame in frames:
-            try:
-                await send_or_edit(
-                    update,
-                    frame,
-                    None,
-                )
-                await asyncio.sleep(0.35)
-            except Exception:
-                break
+        
+        # Save the rating to the new Feedback worksheet
+        await save_feedback_to_sheet(user.id, user.full_name, rating=score)
+        
+        # Logic: Notify Admin if rating is low (<= 2)
+        if int(score) <= 2 and ADMIN_ID:
+            await context.bot.send_message(
+                chat_id=int(ADMIN_ID),
+                text=f"⚠️ <b>Low Rating Alert</b>\n\n<b>User:</b> {user.full_name}\n<b>Rating:</b> {score}/5\n<i>The user has been prompted for a comment to explain the issue.</i>",
+                parse_mode=ParseMode.HTML
+            )
+
+        # Logic: Adjust response based on score
+        if int(score) >= 4:
+            final_text = (
+                f"<b>✅ Feedback received</b>\n\n<b>{stars.strip()}</b>\n\n"
+                f"Thank you for the {score}/5 rating! Since you're enjoying the service, "
+                "<b>would you like to share a brief testimonial</b> about what you like most? "
+                "Just type it below."
+            )
+        else:
+            final_text = (
+                f"<b>✅ Feedback received</b>\n\n<b>{stars.strip()}</b>\n\n"
+                "Your rating has been recorded. Is there anything specific we can improve? "
+                "Please let us know by typing a short comment below."
+            )
+
         await send_or_edit(
             update,
-            f"<b>✅ Feedback received</b>\n\n<b>{stars.strip()}</b>\n\nYour overall rating of <b>{score}/5</b> has been recorded. Thank you for helping us improve.",
-            back_home_inline(),
+            final_text,
+            None # Leave it open for the user to type a comment
         )
         return
 
@@ -1164,6 +1141,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         
         phone = message.contact.phone_number
+        if context.user_data.get("is_processing_reg"):
+            return
+            
+        context.user_data["is_processing_reg"] = True
         name = context.user_data.get(REG_DATA_NAME, "Unknown")
         
         # Save to Google Sheets
@@ -1171,14 +1152,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         success = await save_to_google_sheets(name, phone, user.id, user.username)
         
         if success:
+            context.user_data.pop("is_processing_reg", None)
             context.user_data[IS_REGISTERED_KEY] = True
             context.user_data["state"] = None
+            is_admin = str(user.id) == ADMIN_ID
             context.user_data.pop(REG_DATA_NAME, None)
             await message.reply_text(
                 "✅ Registration complete! Your profile has been synchronized with the Vertex SACCO database.",
+                reply_markup=home_keyboard(user.id)
             )
+            if is_admin:
+                await message.reply_text("Admin access confirmed.")
+            
             await show_home(update, context)
         else:
+            context.user_data.pop("is_processing_reg", None)
             await message.reply_text(
                 "There was an issue saving your registration. Our team has been notified, but you can try again or contact support.",
                 reply_markup=phone_registration_keyboard()
@@ -1217,6 +1205,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         if text == BTN_FEEDBACK:
             await show_feedback(update, context)
             return
+        if text == BTN_ADMIN_PANEL:
+            await show_admin_dashboard(update, context)
+            return
 
     if state == STATE_CONTACT_ADMIN:
         if text == BTN_SUPPORT_CANCEL:
@@ -1225,7 +1216,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await safe_telegram_call(
                 lambda: message.reply_text(
                     "Your support draft has been canceled.",
-                    reply_markup=home_keyboard(),
+                    reply_markup=home_keyboard(user.id),
                 ),
                 "canceling support draft",
             )
@@ -1263,7 +1254,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             await safe_telegram_call(
                 lambda: message.reply_text(
                     response,
-                    reply_markup=home_keyboard(),
+                    reply_markup=home_keyboard(user.id),
                 ),
                 "sending support forwarding confirmation",
             )
@@ -1287,12 +1278,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     if state == STATE_FEEDBACK:
         context.user_data["state"] = None
-        logger.info("Written feedback | user_id=%s | feedback=%s", user.id, summarize_message(message))
-        remember_message(context, "user", summarize_message(message))
-        remember_message(context, "assistant", "Thank you for sharing your feedback. Your comment has been recorded.")
+        comment = summarize_message(message)
+        logger.info("Written feedback | user_id=%s | feedback=%s", user.id, comment)
+        
+        # Save the comment to the worksheet
+        await save_feedback_to_sheet(user.id, user.full_name, comment=comment)
+        
         await safe_telegram_call(
             lambda: message.reply_text(
-                "Thank you for sharing your feedback. Your comment has been recorded.",
+                "Thank you for your valuable feedback. It has been recorded and shared with our management team.",
                 reply_markup=back_home_inline(),
             ),
             "sending written feedback confirmation",
@@ -1428,6 +1422,7 @@ def main() -> None:
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("clear", clear_command))
+    application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)
