@@ -1,7 +1,8 @@
 # Secrets and Config
 .env
 *.json
-!google-service-account.json # Only if you want to include a template
+!content.json
+!google-service-account.json
 
 # Python
 __pycache__/
@@ -9,3 +10,6 @@ __pycache__/
 
 # Persistence
 *.pickle
+
+# Redundant Folders
+VertexBot/

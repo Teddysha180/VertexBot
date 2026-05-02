@@ -18,6 +18,7 @@ import os
 import threading
 from typing import Any, Optional
 from urllib import error, request
+from datetime import datetime
 
 from dotenv import load_dotenv
 import gspread
@@ -43,12 +44,32 @@ ADMIN_ID = os.getenv("ADMIN_ID", "").strip()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant").strip()
 GOOGLE_SHEET_ID = os.getenv("GOOGLE_SHEET_ID", "").strip()
+GOOGLE_SERVICE_ACCOUNT_JSON = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+GOOGLE_SERVICE_ACCOUNT_FILE = os.getenv("GOOGLE_SERVICE_ACCOUNT_FILE", "google-service-account.json").strip()
+CONTENT_FILE = "content.json"
+SHEETS_SCOPES = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive",
+]
 
 logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
     level=logging.INFO,
 )
 logger = logging.getLogger("vertex_sacco_bot")
+
+CONTENT = {}
+def load_content():
+    global CONTENT
+    try:
+        if os.path.exists(CONTENT_FILE):
+            with open(CONTENT_FILE, 'r', encoding='utf-8') as f:
+                CONTENT = json.load(f)
+                logger.info("Content configuration loaded successfully.")
+        else:
+            logger.error(f"Critical: {CONTENT_FILE} not found. Bot may lack necessary text.")
+    except Exception as e:
+        logger.error(f"Failed to load content: {e}")
 
 
 BRAND_EMOJI = "💚"
@@ -74,88 +95,6 @@ SUPPORT_DRAFT_KEY = "support_draft"
 IS_REGISTERED_KEY = "is_registered"
 REG_DATA_NAME = "reg_data_name"
 
-
-FAQ_ITEMS = {
-    "faq_join": (
-        "How do I become a member?",
-        "Joining Vertex SACCO is simple. Visit any branch with your national ID or passport, a passport photo, "
-        "and your opening contribution. Our onboarding team will guide you through the registration form, "
-        "member number setup, and account activation.",
-    ),
-    "faq_loan": (
-        "How long does loan processing take?",
-        "Standard loan applications are reviewed after document verification and guarantor confirmation. "
-        "Emergency facilities are prioritized, while development loans may take longer depending on appraisal requirements.",
-    ),
-    "faq_savings": (
-        "Can I save and borrow at the same time?",
-        "Yes. Members can continue building savings while accessing eligible loan products. "
-        "A healthy savings history improves your borrowing profile and strengthens your access to higher limits over time.",
-    ),
-    "faq_support": (
-        "How do I get account help?",
-        "Use the Contact Admin menu for account support, statement help, or document follow-up. "
-        "Your request will be routed to the support desk for direct assistance.",
-    ),
-}
-
-BRANCHES = {
-    "branch_hq": {
-        "name": "Addis Ababa Main Office",
-        "address": "22 Area, Addis Ababa, Ethiopia",
-        "phone": "+251 11 000 0000",
-        "hours": "Mon-Fri 8:30 AM - 5:30 PM, Sat 8:30 AM - 12:30 PM",
-        "maps_url": "https://www.google.com/maps/search/?api=1&query=22+Area+Addis+Ababa+Ethiopia",
-    },
-    "branch_westlands": {
-        "name": "Member Service Desk",
-        "address": "Addis Ababa, Ethiopia",
-        "phone": "+251 11 000 0001",
-        "hours": "Mon-Fri 8:30 AM - 5:30 PM",
-        "maps_url": "https://www.google.com/maps/search/?api=1&query=Addis+Ababa+Ethiopia",
-    },
-    "branch_mombasa": {
-        "name": "Verification Support Office",
-        "address": "22 Area vicinity, Addis Ababa, Ethiopia",
-        "phone": "+251 11 000 0002",
-        "hours": "Mon-Fri 8:30 AM - 5:00 PM",
-        "maps_url": "https://www.google.com/maps/search/?api=1&query=22+Area+Addis+Ababa",
-    },
-}
-
-SERVICES_CONTENT = {
-    "service_savings": (
-        "Savings Services",
-        "Build your financial future through regular deposits, goal-based saving, children's plans, "
-        "and long-term member wealth programs. Members benefit from disciplined saving, easier access to credit, "
-        "and stronger dividend potential.",
-    ),
-    "service_loans": (
-        "Loan Services",
-        "Vertex SACCO offers salary advances, emergency loans, school fees support, development financing, "
-        "and business growth facilities. Loan options are structured around repayment ability, savings profile, "
-        "and member standing.\n\n"
-        "What goes into financing:\n"
-        "• Member eligibility based on savings history and repayment track record\n"
-        "• Loan amount determined by savings balance and income verification\n"
-        "• Interest rates starting from competitive SACCO rates\n"
-        "• Repayment terms from 3-36 months depending on loan type\n"
-        "• Guarantor requirements for larger loans\n"
-        "• Document verification including ID, payslips, and business plans\n"
-        "• Credit scoring based on member standing and financial discipline",
-    ),
-    "service_digital": (
-        "Digital Services",
-        "Members can use digital support channels for balance requests, product inquiries, branch guidance, "
-        "and follow-up on applications. This bot acts as the first support layer for quick assistance.",
-    ),
-    "service_support": (
-        "Member Support",
-        "For account issues, document clarification, application follow-up, or one-on-one assistance, "
-        "use the Contact Admin section and our support team will respond directly.",
-    ),
-}
-
 ADMIN_REPLY_MAP_KEY = "admin_reply_map"
 CHAT_MEMORY_KEY = "chat_memory"
 MAX_MEMORY_MESSAGES = 20
@@ -169,46 +108,6 @@ TELEGRAM_MEDIA_WRITE_TIMEOUT = 60.0
 TELEGRAM_POLL_TIMEOUT = 30.0
 RENDER_HOST = "0.0.0.0"
 RENDER_DEFAULT_PORT = 10000
-VERTEX_AI_SYSTEM_PROMPT = """You are the Vertex Financial Persona, the expert voice of Vertex SACCO. 
-Your essence is the Vertex "Green Brand": Sharp, Confident, and Highly Professional.
-
-You are not just a chatbot; you are a high-level financial consultant specialized in the SACCO sector and general wealth management.
-
-Core Personality Traits:
-- CONFIDENT: You speak with authority. You know the financial sector inside out.
-- NOT ROBOTIC: Use natural, fluid language. Avoid repetitive "I can help with..." templates.
-- NOT TOO SOFT: You are helpful but firm and professional. Do not be overly apologetic or submissive.
-- INTELLIGENT: Understand the user's deep intent. If they ask about "borrowing," speak about "credit facilities" and "financial leverage" where appropriate.
-
-Your Primary Role:
-1. Act as a powerful helper for any questions related to the financing sector, credit cooperatives, and wealth building.
-2. Provide insights into how Vertex SACCO empowers its members through disciplined savings and strategic loans.
-3. Maintain the professional "Green Brand" at all times—warm yet composed.
-
-Rules of Engagement:
-- If a question is broad, provide a comprehensive, expert-level summary.
-- If the intent is unclear, ask a sharp, clarifying question.
-- Never invent specific financial rates; instead, explain the *logic* behind the rates and direct them to the office for today's exact numbers.
-- Default to English, but transition naturally to Amharic if the user initiates it.
-
-Expertise Areas: 
-Cooperative finance, interest-bearing savings, credit appraisals, member-owned equity, and financial literacy.
-
-Official contact details:
-- 0991 44 44 11
-- 0991 44 44 22
-- 0991 44 44 88
-- 0991 44 44 99
-
-Office:
-- Addis Ababa, 22 Area
-- near Golagul Building
-- Getfam Hotel road
-- around New Bata Complex
-- same building as Zemen Bank
-
-Speak as the human face of Vertex—composed, expert, and focused on member growth."""
-
 
 def home_keyboard(user_id: Optional[int] = None) -> ReplyKeyboardMarkup:
     buttons = [
@@ -263,7 +162,8 @@ def home_and_contact_inline() -> InlineKeyboardMarkup:
 
 def faq_inline() -> InlineKeyboardMarkup:
     rows = []
-    for key, (question, _) in FAQ_ITEMS.items():
+    for key, data in CONTENT.get("faq", {}).items():
+        question = data[0]
         rows.append([InlineKeyboardButton(f"🧾 {question}", callback_data=key)])
     rows.append([InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")])
     return InlineKeyboardMarkup(rows)
@@ -309,7 +209,7 @@ def branches_inline() -> InlineKeyboardMarkup:
 
 
 def branch_actions(branch_key: str) -> InlineKeyboardMarkup:
-    branch = BRANCHES[branch_key]
+    branch = CONTENT.get("branches", {}).get(branch_key, {})
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("📍 Open in Maps", url=branch["maps_url"])],
@@ -395,29 +295,50 @@ def memory_text(memory: deque[dict[str, str]]) -> str:
     return " | ".join(f"{item['role']}: {item['text']}" for item in memory)
 
 
+def load_google_credentials() -> Optional[Credentials]:
+    """Loads Google service account credentials from env var or local file."""
+    try:
+        if GOOGLE_SERVICE_ACCOUNT_JSON:
+            info = json.loads(GOOGLE_SERVICE_ACCOUNT_JSON)
+            return Credentials.from_service_account_info(info, scopes=SHEETS_SCOPES)
+        if os.path.exists(GOOGLE_SERVICE_ACCOUNT_FILE):
+            return Credentials.from_service_account_file(GOOGLE_SERVICE_ACCOUNT_FILE, scopes=SHEETS_SCOPES)
+    except (json.JSONDecodeError, OSError, ValueError) as exc:
+        logger.error("Failed to load Google service account credentials: %s", exc)
+    return None
+
+
 async def save_to_google_sheets(name: str, phone: str, user_id: int, username: str) -> bool:
-    json_str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-    if not GOOGLE_SHEET_ID or not json_str:
-        logger.warning("Google Sheets configuration missing (ID or JSON env var).")
+    if not GOOGLE_SHEET_ID:
+        logger.warning("Google Sheet ID missing.")
         return False
 
     def _append():
         try:
-            service_account_info = json.loads(json_str)
-            client_email = service_account_info.get("client_email", "unknown email")
-            scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-            creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
+            creds = load_google_credentials()
+            if not creds:
+                logger.error("Google credentials missing. Registration not saved.")
+                return False
+            
+            client_email = getattr(creds, "service_account_email", "unknown email")
             client = gspread.authorize(creds)
             
             sheet_id = GOOGLE_SHEET_ID
             if "spreadsheets/d/" in sheet_id:
                 sheet_id = sheet_id.split("spreadsheets/d/")[1].split("/")[0]
             
-            logger.info("Attempting to save registration for %s to sheet %s", user_id, sheet_id)
-            # Use open_by_key and get the first sheet
             spreadsheet = client.open_by_key(sheet_id)
-            sheet = spreadsheet.get_worksheet(0)
-            from datetime import datetime
+            
+            # Robust worksheet selection for 'Join Data'
+            try:
+                sheet = spreadsheet.worksheet("Join Data")
+            except gspread.exceptions.WorksheetNotFound:
+                try:
+                    sheet = spreadsheet.worksheet("Sheet 1")
+                except gspread.exceptions.WorksheetNotFound:
+                    sheet = spreadsheet.get_worksheet(0)
+
+            logger.info("Saving registration for %s to worksheet: %s", user_id, sheet.title)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             # Matches your headers: timestamp | telegram_user_id | full_name | phone_number | telegram_username | registration_status
@@ -445,14 +366,14 @@ async def save_to_google_sheets(name: str, phone: str, user_id: int, username: s
 
 async def save_feedback_to_sheet(user_id: int, name: str, rating: str = "N/A", comment: str = "N/A") -> bool:
     """Saves feedback data to a dedicated 'Feedback' worksheet."""
-    json_str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-    if not GOOGLE_SHEET_ID or not json_str:
+    if not GOOGLE_SHEET_ID:
         return False
 
     def _work():
         try:
-            service_account_info = json.loads(json_str)
-            creds = Credentials.from_service_account_info(service_account_info, scopes=["https://www.googleapis.com/auth/spreadsheets"])
+            creds = load_google_credentials()
+            if not creds:
+                return False
             client = gspread.authorize(creds)
             
             sheet_id = GOOGLE_SHEET_ID
@@ -475,7 +396,6 @@ async def save_feedback_to_sheet(user_id: int, name: str, rating: str = "N/A", c
                     # Format the header
                     worksheet.format("A1:E1", {"textFormat": {"bold": True}, "backgroundColor": {"green": 0.8, "red": 0.2, "blue": 0.2}})
 
-            from datetime import datetime
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
             worksheet.append_row([
@@ -494,15 +414,14 @@ async def save_feedback_to_sheet(user_id: int, name: str, rating: str = "N/A", c
 
 
 async def get_total_registrations() -> int:
-    json_str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
-    if not GOOGLE_SHEET_ID or not json_str:
+    if not GOOGLE_SHEET_ID:
         return 0
 
     def _read():
         try:
-            service_account_info = json.loads(json_str)
-            scopes = ["https://www.googleapis.com/auth/spreadsheets"]
-            creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
+            creds = load_google_credentials()
+            if not creds:
+                return 0
             client = gspread.authorize(creds)
             
             sheet_id = GOOGLE_SHEET_ID
@@ -555,22 +474,8 @@ AI_THANKS_WORDS = {"thanks", "thank"}
 AI_MEMORY_REFERENCES = {"it", "that", "this", "they", "there"}
 
 def build_ai_answer(user_text: str, memory_summary: str = "") -> str:
-    text = user_text.lower().strip()
-    words = set(normalize_words(user_text))
-
-    if words & AI_GREETING_WORDS:
-        return "Welcome to Vertex SACCO. I'm here to provide the financial insights you need. What's on your mind?"
-
-    if any(phrase in text for phrase in ["how are you", "how about you", "and you", "you?", "i'm good", "im good"]):
-        return "I'm focused and ready to assist with your financial inquiries. How can I help you grow today?"
-
-    if words & AI_THANKS_WORDS:
-        return "It's my pleasure. Let me know if you require further clarification on our financial services."
-
-    return (
-        "I specialize in Vertex SACCO's financial ecosystem, including membership, strategic savings, and credit facilities. "
-        "Ask me anything regarding these sectors, and I'll provide the expert guidance you're looking for."
-    )
+    # Fallback response from content config
+    return CONTENT.get("build_ai_answer_fallback", "I specialize in Vertex SACCO's financial ecosystem. Ask me anything regarding these sectors.")
 
 
 async def groq_chat_completion(messages: list[dict[str, str]]) -> Optional[str]:
@@ -610,7 +515,7 @@ async def groq_chat_completion(messages: list[dict[str, str]]) -> Optional[str]:
 
 async def generate_ai_reply(context: ContextTypes.DEFAULT_TYPE, user_text: str) -> str:
     memory = list(get_chat_memory(context))
-    messages = [{"role": "system", "content": VERTEX_AI_SYSTEM_PROMPT}]
+    messages = [{"role": "system", "content": CONTENT.get("system_prompt", "")}]
     for item in memory[-20:]:
         role = "assistant" if item["role"] == "assistant" else "user"
         messages.append({"role": role, "content": item["text"]})
@@ -696,7 +601,7 @@ async def start_registration(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data["state"] = STATE_REG_NAME
     welcome_text = (
         f"<b>{BRAND_EMOJI} Welcome to Vertex SACCO</b>\n\n"
-        "To provide you with secure and personalized financial services, we need to register your profile.\n\n"
+        + CONTENT.get("ui_texts", {}).get("welcome_registration", "") + "\n\n"
         "Please enter your <b>Full Name</b> to begin:"
     )
     if update.effective_message:
@@ -729,7 +634,7 @@ async def show_home(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     welcome_text = (
         f"<b>{BRAND_EMOJI} Vertex SACCO Digital Assistant</b>\n"
         "<i>Professional • Trusted • Green</i>\n\n"
-        "Welcome to our official digital portal. Experience the <b>Vertex Green Brand</b> through simplified member services and financial growth.\n\n"
+        + CONTENT.get("ui_texts", {}).get("welcome_home", "") + "\n\n"
         "How can we help you grow today?"
     )
 
@@ -766,7 +671,7 @@ async def show_admin_dashboard(update: Update, context: ContextTypes.DEFAULT_TYP
 
     text = (
         "<b>🛠 Vertex SACCO Admin Dashboard</b>\n\n"
-        "Welcome back, Admin. Use this panel to monitor registrations and access the central database.\n\n"
+        + CONTENT.get("ui_texts", {}).get("admin_dashboard_welcome", "") + "\n\n"
         "🟢 <b>Active Model:</b> <code>" + html.escape(GROQ_MODEL) + "</code>"
     )
     await send_or_edit(update, text, admin_dashboard_inline())
@@ -805,7 +710,7 @@ async def clear_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 async def show_ai_assistant(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     text = (
         f"<b>{BRAND_EMOJI} AI Assistant</b>\n\n"
-        "Ask any question in your own words. The assistant will reply naturally using Vertex SACCO knowledge about membership, savings, loans, office details, and general SACCO guidance.\n\n"
+        + CONTENT.get("ui_texts", {}).get("ai_assistant_intro", "") + "\n\n"
         "🟢 <b>Examples:</b>\n"
         "- How do I join?\n"
         "- What does SACCO mean?\n"
@@ -1035,18 +940,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         await show_feedback(update, context)
         return
 
-    if data in FAQ_ITEMS:
-        question, answer = FAQ_ITEMS[data]
+    faq_data = CONTENT.get("faq", {})
+    if data in faq_data:
+        question, answer = faq_data[data]
         await send_or_edit(update, f"<b>{question}</b>\n\n{answer}", back_home_inline())
         return
 
-    if data in SERVICES_CONTENT:
-        title, body = SERVICES_CONTENT[data]
+    service_data = CONTENT.get("services", {})
+    if data in service_data:
+        title, body = service_data[data]
         await send_or_edit(update, f"<b>{title}</b>\n\n{body}", home_and_contact_inline())
         return
 
-    if data in BRANCHES:
-        branch = BRANCHES[data]
+    branch_data = CONTENT.get("branches", {})
+    if data in branch_data:
+        branch = branch_data[data]
         await send_or_edit(
             update,
             (
@@ -1393,6 +1301,7 @@ def maybe_start_render_health_server() -> None:
 
 
 def main() -> None:
+    load_content()
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is missing. Set it in your .env file.")
 

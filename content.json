@@ -1,0 +1,68 @@
+{
+  "system_prompt": "You are the Vertex Financial Persona, the expert voice of Vertex SACCO. Your essence is the Vertex \"Green Brand\": Sharp, Confident, and Highly Professional.\n\nYou are not just a chatbot; you are a high-level financial consultant specialized in the SACCO sector and general wealth management.\n\nCore Personality Traits:\n- CONFIDENT: You speak with authority. You know the financial sector inside out.\n- NOT ROBOTIC: Use natural, fluid language. Avoid repetitive \"I can help with...\" templates.\n- NOT TOO SOFT: You are helpful but firm and professional. Do not be overly apologetic or submissive.\n- INTELLIGENT: Understand the user's deep intent. If they ask about \"borrowing,\" speak about \"credit facilities\" and \"financial leverage\" where appropriate.\n\nYour Primary Role:\n1. Act as a powerful helper for any questions related to the financing sector, credit cooperatives, and wealth building.\n2. Provide insights into how Vertex SACCO empowers its members through disciplined savings and strategic loans.\n3. Maintain the professional \"Green Brand\" at all times—warm yet composed.\n\nRules of Engagement:\n- If a question is broad, provide a comprehensive, expert-level summary.\n- If the intent is unclear, ask a sharp, clarifying question.\n- Never invent specific financial rates; instead, explain the *logic* behind the rates and direct them to the office for today's exact numbers.\n- Default to English, but transition naturally to Amharic if the user initiates it.\n\nExpertise Areas: \nCooperative finance, interest-bearing savings, credit appraisals, member-owned equity, and financial literacy.\n\nOfficial contact details:\n- 0991 44 44 11\n- 0991 44 44 22\n- 0991 44 44 88\n- 0991 44 44 99\n\nOffice:\n- Addis Ababa, 22 Area\n- near Golagul Building\n- Getfam Hotel road\n- around New Bata Complex\n- same building as Zemen Bank\n\nSpeak as the human face of Vertex—composed, expert, and focused on member growth.",
+  "faq": {
+    "faq_join": [
+      "How do I become a member?",
+      "Joining Vertex SACCO is simple. Visit any branch with your national ID or passport, a passport photo, and your opening contribution. Our onboarding team will guide you through the registration form, member number setup, and account activation."
+    ],
+    "faq_loan": [
+      "How long does loan processing take?",
+      "Standard loan applications are reviewed after document verification and guarantor confirmation. Emergency facilities are prioritized, while development loans may take longer depending on appraisal requirements."
+    ],
+    "faq_savings": [
+      "Can I save and borrow at the same time?",
+      "Yes. Members can continue building savings while accessing eligible loan products. A healthy savings history improves your borrowing profile and strengthens your access to higher limits over time."
+    ],
+    "faq_support": [
+      "How do I get account help?",
+      "Use the Contact Admin menu for account support, statement help, or document follow-up. Your request will be routed to the support desk for direct assistance."
+    ]
+  },
+  "branches": {
+    "branch_hq": {
+      "name": "Addis Ababa Main Office",
+      "address": "22 Area, Addis Ababa, Ethiopia",
+      "phone": "+251 11 000 0000",
+      "hours": "Mon-Fri 8:30 AM - 5:30 PM, Sat 8:30 AM - 12:30 PM",
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=22+Area+Addis+Ababa+Ethiopia"
+    },
+    "branch_westlands": {
+      "name": "Member Service Desk",
+      "address": "Addis Ababa, Ethiopia",
+      "phone": "+251 11 000 0001",
+      "hours": "Mon-Fri 8:30 AM - 5:30 PM",
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=Addis+Ababa+Ethiopia"
+    },
+    "branch_mombasa": {
+      "name": "Verification Support Office",
+      "address": "22 Area vicinity, Addis Ababa, Ethiopia",
+      "phone": "+251 11 000 0002",
+      "hours": "Mon-Fri 8:30 AM - 5:00 PM",
+      "maps_url": "https://www.google.com/maps/search/?api=1&query=22+Area+Addis+Ababa"
+    }
+  },
+  "services": {
+    "service_savings": [
+      "Savings Services",
+      "Build your financial future through regular deposits, goal-based saving, children's plans, and long-term member wealth programs. Members benefit from disciplined saving, easier access to credit, and stronger dividend potential."
+    ],
+    "service_loans": [
+      "Loan Services",
+      "Vertex SACCO offers salary advances, emergency loans, school fees support, development financing, and business growth facilities. Loan options are structured around repayment ability, savings profile, and member standing.\n\nWhat goes into financing:\n• Member eligibility based on savings history and repayment track record\n• Loan amount determined by savings balance and income verification\n• Interest rates starting from competitive SACCO rates\n• Repayment terms from 3-36 months depending on loan type\n• Guarantor requirements for larger loans\n• Document verification including ID, payslips, and business plans\n• Credit scoring based on member standing and financial discipline"
+    ],
+    "service_digital": [
+      "Digital Services",
+      "Members can use digital support channels for balance requests, product inquiries, branch guidance, and follow-up on applications. This bot acts as the first support layer for quick assistance."
+    ],
+    "service_support": [
+      "Member Support",
+      "For account issues, document clarification, application follow-up, or one-on-one assistance, use the Contact Admin section and our support team will respond directly."
+    ]
+  },
+  "ui_texts": {
+    "welcome_registration": "To provide you with secure and personalized financial services, we need to register your profile.",
+    "welcome_home": "Welcome to our official digital portal. Experience the <b>Vertex Green Brand</b> through simplified member services and financial growth.",
+    "ai_assistant_intro": "Ask any question in your own words. The assistant will reply naturally using Vertex SACCO knowledge about membership, savings, loans, office details, and general SACCO guidance.",
+    "admin_dashboard_welcome": "Welcome back, Admin. Use this panel to monitor registrations and access the central database."
+  }
+}
