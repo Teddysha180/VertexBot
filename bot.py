@@ -62,15 +62,18 @@ CONTENT = {}
 def load_content():
     global CONTENT
     try:
-        abs_path = os.path.abspath(CONTENT_FILE)
+        # Determine path relative to the script location
+        base_path = os.path.dirname(os.path.abspath(__file__))
+        abs_path = os.path.join(base_path, CONTENT_FILE)
+        
         if os.path.exists(abs_path):
             with open(abs_path, 'r', encoding='utf-8') as f:
                 CONTENT = json.load(f)
-                logger.info("Content configuration loaded successfully from %s. Keys: %s", abs_path, list(CONTENT.keys()))
+                logger.info("Content configuration loaded successfully from %s.", abs_path)
         else:
-            logger.error("Critical: Content file not found at %s", abs_path)
+            logger.error("CRITICAL: Content file not found at %s. AI will use hardcoded defaults.", abs_path)
     except Exception as e:
-        logger.error(f"Failed to load content: {e}")
+        logger.error("FAILED to load content.json: %s", e)
 
 
 BRAND_EMOJI = "💚"
@@ -477,11 +480,33 @@ AI_THANKS_WORDS = {"thanks", "thank"}
 AI_MEMORY_REFERENCES = {"it", "that", "this", "they", "there"}
 
 def build_ai_answer(user_text: str, memory_summary: str = "") -> str:
-    # Fallback response from content config
+    """Restored intelligent fallback that uses content.json to answer when AI is down."""
+    text = " ".join(user_text.lower().split())
+    words = set(normalize_words(user_text))
+    
+    if not text:
+        return "Please send your question and I will help."
+
+    # 1. GREETINGS
+    if words & AI_GREETING_WORDS:
+        return "Welcome to Vertex SACCO. I'm here to provide the financial insights you need. What's on your mind?"
+
+    # 2. FAQ & SERVICES LOOKUP (Smart Fallback)
+    if any(term in text for term in ["loan", "borrow", "credit", "finance"]):
+        loan_info = CONTENT.get("services", {}).get("service_loans", ["Loan Services", ""])
+        return f"<b>{loan_info[0]}</b>: {loan_info[1]}"
+
+    if any(term in text for term in ["save", "savings", "deposit"]):
+        save_info = CONTENT.get("services", {}).get("service_savings", ["Savings Services", ""])
+        return f"<b>{save_info[0]}</b>: {save_info[1]}"
+        
+    if any(term in text for term in ["join", "member", "register"]):
+        join_info = CONTENT.get("faq", {}).get("faq_join", ["", ""])
+        return join_info[1] if join_info[1] else "Visit any branch with your ID to join."
+
+    # 3. IF ALL ELSE FAILS, USE THE OPTIMIZING MESSAGE
     fallback = CONTENT.get("ui_texts", {}).get("ai_fallback_message")
-    if fallback:
-        return fallback
-    return "⚠️ Configuration Error: Groq API failed AND content.json is missing or invalid. Please check Render logs."
+    return fallback if fallback else "I am currently optimizing my financial databases. Please try again in a moment."
 
 
 async def groq_chat_completion(messages: list[dict[str, str]]) -> Optional[str]:
