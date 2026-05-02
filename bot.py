@@ -349,7 +349,8 @@ async def save_to_google_sheets(name: str, phone: str, user_id: int, username: s
                 phone, 
                 f"@{username}" if username else "N/A", 
                 "registered"
-            ])
+            ],
+            value_input_option="USER_ENTERED")
             return True
         except gspread.exceptions.SpreadsheetNotFound:
             logger.error("404 Error: Google Sheet not found. Ensure %s has 'Editor' access to sheet ID: %s", client_email, sheet_id)
@@ -404,7 +405,8 @@ async def save_feedback_to_sheet(user_id: int, name: str, rating: str = "N/A", c
                 name,
                 rating,
                 comment
-            ])
+            ],
+            value_input_option="USER_ENTERED")
             return True
         except Exception as e:
             logger.error("Error saving feedback: %s", e)
@@ -506,6 +508,16 @@ async def groq_chat_completion(messages: list[dict[str, str]]) -> Optional[str]:
             with request.urlopen(req, timeout=25) as response:
                 data = json.loads(response.read().decode("utf-8"))
                 return data["choices"][0]["message"]["content"].strip()
+        except error.HTTPError as e:
+            error_body = e.read().decode("utf-8")
+            logger.error("Groq API HTTP Error %s: %s", e.code, error_body)
+            return None
+        except error.URLError as e:
+            logger.error("Groq API URL Error: %s", e.reason)
+            return None
+        except json.JSONDecodeError:
+            logger.error("Groq API returned invalid JSON.")
+            return None
         except (error.URLError, error.HTTPError, KeyError, IndexError, TimeoutError, json.JSONDecodeError) as exc:
             logger.warning("Groq request failed: %s", exc)
             return None
@@ -515,7 +527,12 @@ async def groq_chat_completion(messages: list[dict[str, str]]) -> Optional[str]:
 
 async def generate_ai_reply(context: ContextTypes.DEFAULT_TYPE, user_text: str) -> str:
     memory = list(get_chat_memory(context))
-    messages = [{"role": "system", "content": CONTENT.get("system_prompt", "")}]
+    system_prompt = CONTENT.get("system_prompt")
+    if not system_prompt:
+        system_prompt = "You are the Vertex Financial Persona, a confident and professional financial consultant for Vertex SACCO."
+        logger.warning("system_prompt missing from content.json, using default.")
+
+    messages = [{"role": "system", "content": system_prompt}]
     for item in memory[-20:]:
         role = "assistant" if item["role"] == "assistant" else "user"
         messages.append({"role": role, "content": item["text"]})
@@ -523,17 +540,10 @@ async def generate_ai_reply(context: ContextTypes.DEFAULT_TYPE, user_text: str) 
 
     ai_text = await groq_chat_completion(messages)
     if ai_text:
-        # Add a natural, warm touch
-        if any(word in user_text.lower() for word in ["thank", "thanks"]):
-            return ai_text + "\n\nIf you have more questions, feel free to ask!"
         return ai_text
 
     # Fallback/local AI
-    answer = build_ai_answer(user_text, memory_text(get_chat_memory(context)))
-    # Add a natural, warm touch
-    if any(word in user_text.lower() for word in ["thank", "thanks"]):
-        return answer + "\n\nIf you have more questions, feel free to ask!"
-    return answer
+    return build_ai_answer(user_text)
 
 
 async def safe_telegram_call(
