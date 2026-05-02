@@ -452,7 +452,8 @@ def summarize_message(message: Message) -> str:
     if message.caption:
         return message.caption
     if message.photo:
-        return "Photo attachment"
+        # Returns the file_id of the highest resolution version of the photo
+        return f"FILE_ID:{message.photo[-1].file_id}"
     if message.video:
         return "Video attachment"
     if message.document:
@@ -1012,17 +1013,46 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     branch_data = CONTENT.get("branches", {})
     if data in branch_data:
         branch = branch_data[data]
-        await send_or_edit(
-            update,
-            (
-                f"<b>{branch['name']}</b>\n\n"
-                f"<b>Address:</b> {branch['address']}\n"
-                f"<b>Phone:</b> {branch['phone']}\n"
-                f"<b>Hours:</b> {branch['hours']}\n\n"
-                "Tap the map button below for directions."
-            ),
-            branch_actions(data),
+        caption = (
+            f"<b>{branch['name']}</b>\n\n"
+            f"<b>Address:</b> {branch['address']}\n"
+            f"<b>Phone:</b> {branch['phone']}\n"
+            f"<b>Hours:</b> {branch['hours']}\n\n"
+            "Tap the map button below for directions."
         )
+        image_url = branch.get("image_url")
+
+        if image_url:
+            # Answer query and delete the previous menu message
+            await safe_telegram_call(lambda: query.answer(), "answering branch selection")
+            await safe_telegram_call(lambda: query.message.delete(), "deleting branch menu")
+            
+            async def _send_branch_photo():
+                # Check if it's a local file in your assets folder
+                base_path = os.path.dirname(os.path.abspath(__file__))
+                full_path = os.path.join(base_path, image_url)
+                
+                if os.path.exists(full_path):
+                    with open(full_path, "rb") as photo_file:
+                        return await context.bot.send_photo(
+                            chat_id=update.effective_chat.id,
+                            photo=photo_file,
+                            caption=caption,
+                            parse_mode=ParseMode.HTML,
+                            reply_markup=branch_actions(data)
+                        )
+                # Otherwise treat it as a URL or File ID
+                return await context.bot.send_photo(
+                    chat_id=update.effective_chat.id,
+                    photo=image_url,
+                    caption=caption,
+                    parse_mode=ParseMode.HTML,
+                    reply_markup=branch_actions(data)
+                )
+
+            await safe_telegram_call(_send_branch_photo, "sending branch photo")
+        else:
+            await send_or_edit(update, caption, branch_actions(data))
         return
 
     if data.startswith("feedback|"):
