@@ -196,6 +196,15 @@ def back_home_inline() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([[InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")]])
 
 
+def back_faq_inline() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        [
+            [InlineKeyboardButton("🔙 Back to FAQs", callback_data="menu_faq")],
+            [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")],
+        ]
+    )
+
+
 def home_and_contact_inline() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
@@ -1410,7 +1419,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     faq_data = CONTENT.get("faq", {})
     if data in faq_data:
         question, answer = faq_data[data]
-        await send_or_edit(update, f"<b>{question}</b>\n\n{answer}", back_home_inline())
+        await send_or_edit(update, f"<b>{question}</b>\n\n{answer}", back_faq_inline())
         return
 
     service_data = CONTENT.get("services", {})
