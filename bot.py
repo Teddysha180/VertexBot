@@ -96,7 +96,12 @@ STATE_REG_PHONE = "reg_phone"
 STATE_CONTACT_ADMIN = "contact_admin"
 STATE_FEEDBACK = "feedback"
 STATE_GET_FILE_ID = "get_file_id"
+STATE_BROADCAST_MEDIA = "broadcast_media"
+STATE_BROADCAST_BUTTONS = "broadcast_buttons"
+STATE_BROADCAST_CONFIRM = "broadcast_confirm"
+
 SUPPORT_DRAFT_KEY = "support_draft"
+BROADCAST_DRAFT_KEY = "broadcast_draft"
 IS_REGISTERED_KEY = "is_registered"
 REG_DATA_NAME = "reg_data_name"
 
@@ -113,6 +118,41 @@ TELEGRAM_MEDIA_WRITE_TIMEOUT = 60.0
 TELEGRAM_POLL_TIMEOUT = 30.0
 RENDER_HOST = "0.0.0.0"
 RENDER_DEFAULT_PORT = 10000
+
+START_TIME = datetime.now()
+REGISTERED_USERS_FILE = "registered_users.json"
+REGISTERED_USERS_CACHE: dict[str, dict[str, Any]] = {}
+
+def load_registered_users_cache() -> dict[str, dict[str, Any]]:
+    global REGISTERED_USERS_CACHE
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    abs_path = os.path.join(base_path, REGISTERED_USERS_FILE)
+    if os.path.exists(abs_path):
+        try:
+            with open(abs_path, "r", encoding="utf-8") as f:
+                REGISTERED_USERS_CACHE = json.load(f)
+                logger.info("Loaded %d registered users into local cache.", len(REGISTERED_USERS_CACHE))
+        except Exception as e:
+            logger.error("Failed to load registered_users.json: %s", e)
+            REGISTERED_USERS_CACHE = {}
+    return REGISTERED_USERS_CACHE
+
+def save_registered_user_cache(user_id: int | str, name: str = "", phone: str = "") -> None:
+    global REGISTERED_USERS_CACHE
+    uid = str(user_id)
+    REGISTERED_USERS_CACHE[uid] = {
+        "name": name,
+        "phone": phone,
+        "registered_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    abs_path = os.path.join(base_path, REGISTERED_USERS_FILE)
+    try:
+        with open(abs_path, "w", encoding="utf-8") as f:
+            json.dump(REGISTERED_USERS_CACHE, f, indent=2)
+    except Exception as e:
+        logger.error("Failed to save registered_users.json: %s", e)
+
 
 def home_keyboard(user_id: Optional[int] = None) -> ReplyKeyboardMarkup:
     buttons = [
@@ -183,7 +223,9 @@ def admin_dashboard_inline() -> InlineKeyboardMarkup:
     
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("📊 Registration Stats", callback_data="admin_stats")],
+            [InlineKeyboardButton("📢 Broadcast Announcement", callback_data="admin_broadcast")],
+            [InlineKeyboardButton("📊 System & Member Stats", callback_data="admin_stats")],
+            [InlineKeyboardButton("🔄 Sync Member Registry", callback_data="admin_sync")],
             [InlineKeyboardButton("🆔 Get Telegram File ID", callback_data="admin_get_file_id")],
             [InlineKeyboardButton("📄 View Google Sheet", url=sheet_url)],
             [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")],
@@ -314,17 +356,111 @@ def load_google_credentials() -> Optional[Credentials]:
     return None
 
 
-async def save_to_google_sheets(name: str, phone: str, user_id: int, username: str) -> bool:
+async def check_user_registered_in_sheet(user_id: int | str) -> Optional[dict[str, str]]:
+    """Asynchronously checks if a Telegram user ID exists in Google Sheets."""
     if not GOOGLE_SHEET_ID:
-        logger.warning("Google Sheet ID missing.")
-        return False
+        return None
+
+    def _check():
+        try:
+            creds = load_google_credentials()
+            if not creds:
+                return None
+            client = gspread.authorize(creds)
+            sheet_id = GOOGLE_SHEET_ID
+            if "spreadsheets/d/" in sheet_id:
+                sheet_id = sheet_id.split("spreadsheets/d/")[1].split("/")[0]
+            spreadsheet = client.open_by_key(sheet_id)
+            try:
+                sheet = spreadsheet.worksheet("Join Data")
+            except gspread.exceptions.WorksheetNotFound:
+                try:
+                    sheet = spreadsheet.worksheet("Sheet 1")
+                except gspread.exceptions.WorksheetNotFound:
+                    sheet = spreadsheet.get_worksheet(0)
+
+            rows = sheet.get_all_values()
+            uid = str(user_id)
+            for row in rows[1:]:
+                if len(row) > 1 and row[1].strip() == uid:
+                    name = row[2].strip() if len(row) > 2 else ""
+                    phone = row[3].strip() if len(row) > 3 else ""
+                    return {"user_id": uid, "name": name, "phone": phone}
+            return None
+        except Exception as e:
+            logger.error("Error checking user in Google Sheets: %s", e)
+            return None
+
+    return await asyncio.to_thread(_check)
+
+
+async def sync_registered_users_from_sheets() -> int:
+    """Reads all user IDs from Google Sheets and populates REGISTERED_USERS_CACHE."""
+    if not GOOGLE_SHEET_ID:
+        return len(REGISTERED_USERS_CACHE)
+
+    def _sync():
+        try:
+            creds = load_google_credentials()
+            if not creds:
+                return len(REGISTERED_USERS_CACHE)
+            client = gspread.authorize(creds)
+            sheet_id = GOOGLE_SHEET_ID
+            if "spreadsheets/d/" in sheet_id:
+                sheet_id = sheet_id.split("spreadsheets/d/")[1].split("/")[0]
+            spreadsheet = client.open_by_key(sheet_id)
+            try:
+                sheet = spreadsheet.worksheet("Join Data")
+            except gspread.exceptions.WorksheetNotFound:
+                try:
+                    sheet = spreadsheet.worksheet("Sheet 1")
+                except gspread.exceptions.WorksheetNotFound:
+                    sheet = spreadsheet.get_worksheet(0)
+
+            rows = sheet.get_all_values()
+            if len(rows) <= 1:
+                return len(REGISTERED_USERS_CACHE)
+
+            added_count = 0
+            for row in rows[1:]:
+                if len(row) > 1 and row[1].strip():
+                    uid = row[1].strip()
+                    name = row[2].strip() if len(row) > 2 else ""
+                    phone = row[3].strip() if len(row) > 3 else ""
+                    if uid not in REGISTERED_USERS_CACHE:
+                        REGISTERED_USERS_CACHE[uid] = {
+                            "name": name,
+                            "phone": phone,
+                            "registered_at": row[0].strip() if len(row) > 0 else ""
+                        }
+                        added_count += 1
+            
+            if added_count > 0 or len(REGISTERED_USERS_CACHE) > 0:
+                base_path = os.path.dirname(os.path.abspath(__file__))
+                abs_path = os.path.join(base_path, REGISTERED_USERS_FILE)
+                with open(abs_path, "w", encoding="utf-8") as f:
+                    json.dump(REGISTERED_USERS_CACHE, f, indent=2)
+            return len(REGISTERED_USERS_CACHE)
+        except Exception as e:
+            logger.error("Failed to sync registered users from Google Sheets: %s", e)
+            return len(REGISTERED_USERS_CACHE)
+
+    return await asyncio.to_thread(_sync)
+
+
+async def save_to_google_sheets(name: str, phone: str, user_id: int, username: str) -> bool:
+    save_registered_user_cache(user_id, name, phone)
+    
+    if not GOOGLE_SHEET_ID:
+        logger.warning("Google Sheet ID missing. Member saved to local cache.")
+        return True
 
     def _append():
         try:
             creds = load_google_credentials()
             if not creds:
-                logger.error("Google credentials missing. Registration not saved.")
-                return False
+                logger.error("Google credentials missing. Saved to local cache only.")
+                return True
             
             client_email = getattr(creds, "service_account_email", "unknown email")
             client = gspread.authorize(creds)
@@ -335,7 +471,6 @@ async def save_to_google_sheets(name: str, phone: str, user_id: int, username: s
             
             spreadsheet = client.open_by_key(sheet_id)
             
-            # Robust worksheet selection for 'Join Data'
             try:
                 sheet = spreadsheet.worksheet("Join Data")
             except gspread.exceptions.WorksheetNotFound:
@@ -344,13 +479,20 @@ async def save_to_google_sheets(name: str, phone: str, user_id: int, username: s
                 except gspread.exceptions.WorksheetNotFound:
                     sheet = spreadsheet.get_worksheet(0)
 
+            # Prevent duplicate row entry if user already exists
+            uid_str = str(user_id)
+            existing_rows = sheet.get_all_values()
+            for r in existing_rows[1:]:
+                if len(r) > 1 and r[1].strip() == uid_str:
+                    logger.info("User %s already registered in Google Sheet.", uid_str)
+                    return True
+
             logger.info("Saving registration for %s to worksheet: %s", user_id, sheet.title)
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            # Matches your headers: timestamp | telegram_user_id | full_name | phone_number | telegram_username | registration_status
             sheet.append_row([
                 timestamp, 
-                str(user_id), 
+                uid_str, 
                 name, 
                 phone, 
                 f"@{username}" if username else "N/A", 
@@ -360,13 +502,13 @@ async def save_to_google_sheets(name: str, phone: str, user_id: int, username: s
             return True
         except gspread.exceptions.SpreadsheetNotFound:
             logger.error("404 Error: Google Sheet not found. Ensure %s has 'Editor' access to sheet ID: %s", client_email, sheet_id)
-            return False
+            return True # Local cache succeeds
         except gspread.exceptions.APIError as e:
             logger.error("API Error: %s. Check if %s has permission.", e, client_email)
-            return False
+            return True
         except Exception as e:
             logger.error("Unexpected error saving to Google Sheets: %s", e)
-            return False
+            return True
 
     return await asyncio.to_thread(_append)
 
@@ -692,12 +834,37 @@ async def start_registration(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def is_user_registered(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     user = update.effective_user
-    if user and str(user.id) == ADMIN_ID:
+    if not user:
+        return False
+
+    # Admin is always auto-registered
+    if ADMIN_ID and str(user.id) == ADMIN_ID:
+        context.user_data[IS_REGISTERED_KEY] = True
         return True
 
+    # 1. Check in-memory session user_data
     if context.user_data.get(IS_REGISTERED_KEY):
         return True
-    
+
+    # 2. Check local JSON registry cache
+    uid = str(user.id)
+    if uid in REGISTERED_USERS_CACHE:
+        context.user_data[IS_REGISTERED_KEY] = True
+        reg_info = REGISTERED_USERS_CACHE[uid]
+        if reg_info.get("name"):
+            context.user_data[REG_DATA_NAME] = reg_info["name"]
+        return True
+
+    # 3. Asynchronously check Google Sheets to auto-restore
+    sheet_data = await check_user_registered_in_sheet(user.id)
+    if sheet_data:
+        context.user_data[IS_REGISTERED_KEY] = True
+        u_name = sheet_data.get("name") or user.full_name
+        context.user_data[REG_DATA_NAME] = u_name
+        save_registered_user_cache(user.id, u_name, sheet_data.get("phone", ""))
+        logger.info("Auto-restored registration for member %s (%s) from Google Sheets.", user.id, u_name)
+        return True
+
     state = context.user_data.get("state")
     if state in [STATE_REG_NAME, STATE_REG_PHONE]:
         return False
@@ -749,11 +916,169 @@ async def show_admin_dashboard(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     text = (
-        "<b>🛠 Vertex SACCO Admin Dashboard</b>\n\n"
+        "<b>🛠 Vertex SACCO Admin Control Dashboard</b>\n\n"
         + CONTENT.get("ui_texts", {}).get("admin_dashboard_welcome", "") + "\n\n"
-        "🟢 <b>Active Model:</b> <code>" + html.escape(GROQ_MODEL) + "</code>"
+        "🟢 <b>Active Model:</b> <code>" + html.escape(GROQ_MODEL) + "</code>\n"
+        "👑 <b>Admin ID:</b> <code>" + html.escape(str(ADMIN_ID)) + "</code>"
     )
     await send_or_edit(update, text, admin_dashboard_inline())
+
+
+def parse_inline_buttons(text: str) -> Optional[InlineKeyboardMarkup]:
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    rows = []
+    for line in lines:
+        if "|" in line:
+            parts = line.split("|", 1)
+            btn_title = parts[0].strip()
+            btn_url = parts[1].strip()
+            if btn_title and btn_url.startswith(("http://", "https://", "t.me/")):
+                rows.append([InlineKeyboardButton(btn_title, url=btn_url)])
+    if rows:
+        return InlineKeyboardMarkup(rows)
+    return None
+
+
+async def start_broadcast_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or str(user.id) != ADMIN_ID:
+        if update.effective_message:
+            await update.effective_message.reply_text("⛔ Admin access only.")
+        return
+
+    context.user_data["state"] = STATE_BROADCAST_MEDIA
+    context.user_data[BROADCAST_DRAFT_KEY] = {}
+
+    instructions = (
+        "📢 <b>Advanced Announcement & Broadcast Wizard</b>\n\n"
+        "Please send your announcement content below.\n\n"
+        "<b>Supported Media Types:</b>\n"
+        "• 💬 Text Message\n"
+        "• 📸 Photo (with caption)\n"
+        "• 🎬 Video (with caption)\n"
+        "• 🎧 Audio / Voice Note\n"
+        "• 📄 Document / PDF\n\n"
+        "<i>Send your text or upload your media now:</i>"
+    )
+    await send_or_edit(update, instructions, None)
+
+
+async def show_broadcast_preview(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    draft = context.user_data.get(BROADCAST_DRAFT_KEY, {})
+    if not draft:
+        await send_or_edit(update, "❌ Broadcast draft lost. Please try again.", admin_dashboard_inline())
+        return
+
+    chat_id = draft.get("chat_id")
+    msg_id = draft.get("message_id")
+    markup = draft.get("markup")
+
+    preview_keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🚀 Launch Broadcast Now", callback_data="broadcast_send_now")],
+        [InlineKeyboardButton("✏️ Re-edit Content", callback_data="admin_broadcast")],
+        [InlineKeyboardButton("❌ Cancel Broadcast", callback_data="admin_panel")]
+    ])
+
+    if update.effective_message:
+        await update.effective_message.reply_text("📋 <b>Broadcast Draft Preview:</b>", parse_mode=ParseMode.HTML)
+    
+    await safe_telegram_call(
+        lambda: context.bot.copy_message(
+            chat_id=update.effective_chat.id,
+            from_chat_id=chat_id,
+            message_id=msg_id,
+            reply_markup=markup
+        ),
+        "showing broadcast preview copy"
+    )
+
+    await safe_telegram_call(
+        lambda: update.effective_chat.send_message(
+            text="Ready to send this broadcast to all registered members?",
+            reply_markup=preview_keyboard
+        ),
+        "sending broadcast confirm keyboard"
+    )
+
+
+async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    query = update.callback_query
+    if query:
+        await query.answer("Initiating member broadcast...")
+
+    draft = context.user_data.get(BROADCAST_DRAFT_KEY, {})
+    if not draft:
+        await send_or_edit(update, "❌ Broadcast draft lost.", admin_dashboard_inline())
+        return
+
+    await sync_registered_users_from_sheets()
+    user_ids = list(REGISTERED_USERS_CACHE.keys())
+    
+    if ADMIN_ID and ADMIN_ID not in user_ids:
+        user_ids.append(ADMIN_ID)
+
+    if not user_ids:
+        await send_or_edit(update, "⚠️ No registered members found in database to broadcast to.", admin_dashboard_inline())
+        return
+
+    progress_msg = await context.bot.send_message(
+        chat_id=update.effective_chat.id,
+        text=f"🚀 <b>Broadcasting post to {len(user_ids)} members...</b>",
+        parse_mode=ParseMode.HTML
+    )
+
+    success_count = 0
+    fail_count = 0
+
+    for idx, uid_str in enumerate(user_ids, 1):
+        try:
+            target_id = int(uid_str)
+            copied = await safe_telegram_call(
+                lambda: context.bot.copy_message(
+                    chat_id=target_id,
+                    from_chat_id=draft["chat_id"],
+                    message_id=draft["message_id"],
+                    reply_markup=draft.get("markup")
+                ),
+                f"broadcasting to {target_id}"
+            )
+            if copied:
+                success_count += 1
+            else:
+                fail_count += 1
+        except Exception as err:
+            logger.warning("Broadcast failed for user %s: %s", uid_str, err)
+            fail_count += 1
+
+        if idx % 5 == 0 or idx == len(user_ids):
+            await safe_telegram_call(
+                lambda: progress_msg.edit_text(
+                    f"⏳ <b>Broadcast Progress:</b> {idx}/{len(user_ids)}\n"
+                    f"✅ Delivered: {success_count} | ❌ Failed: {fail_count}",
+                    parse_mode=ParseMode.HTML
+                ),
+                "updating broadcast progress"
+            )
+        await asyncio.sleep(0.05)
+
+    context.user_data["state"] = None
+    context.user_data.pop(BROADCAST_DRAFT_KEY, None)
+
+    summary_text = (
+        "<b>📢 Broadcast Completed Successfully!</b>\n\n"
+        f"👥 <b>Total Target Members:</b> {len(user_ids)}\n"
+        f"✅ <b>Successfully Delivered:</b> {success_count}\n"
+        f"❌ <b>Failed / Blocked:</b> {fail_count}"
+    )
+    await safe_telegram_call(
+        lambda: context.bot.send_message(
+            chat_id=update.effective_chat.id,
+            text=summary_text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=admin_dashboard_inline()
+        ),
+        "sending broadcast final summary"
+    )
 
 
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -989,16 +1314,70 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data == "nav_home":
         await show_home(update, context)
         return
+    if data == "admin_panel":
+        context.user_data["state"] = None
+        await show_admin_dashboard(update, context)
+        return
     if data == "menu_ai":
         await show_ai_assistant(update, context)
         return
     if data == "admin_stats":
-        await query.answer("Calculating registrations...")
-        count = await get_total_registrations()
+        await query.answer("Calculating metrics...")
+        await sync_registered_users_from_sheets()
+        total_members = len(REGISTERED_USERS_CACHE)
+        
+        # Calculate bot uptime
+        uptime_delta = datetime.now() - START_TIME
+        hours, remainder = divmod(int(uptime_delta.total_seconds()), 3600)
+        minutes, seconds = divmod(remainder, 60)
+        uptime_str = f"{hours}h {minutes}m {seconds}s"
+
+        ai_status = "✅ Active (Groq LLM)" if (GROQ_API_KEY and not GROQ_API_KEY.startswith("your_")) else "⚠️ Fallback Mode"
+        sheets_status = "✅ Connected" if GOOGLE_SHEET_ID else "⚠️ Local Cache Only"
+
+        stats_text = (
+            "<b>📊 Vertex SACCO System & Member Metrics</b>\n\n"
+            f"👥 <b>Total Registered Members:</b> <code>{total_members}</code>\n"
+            f"⏱ <b>Bot Continuous Uptime:</b> <code>{uptime_str}</code>\n"
+            f"💡 <b>AI Brain Engine:</b> {ai_status}\n"
+            f"📄 <b>Google Sheets Sync:</b> {sheets_status}\n"
+            f"🤖 <b>AI Model:</b> <code>{GROQ_MODEL}</code>\n"
+            f"👑 <b>Admin Telegram ID:</b> <code>{ADMIN_ID}</code>\n\n"
+            "<i>Data synced live across Google Sheets and local persistent cache.</i>"
+        )
+        await send_or_edit(update, stats_text, admin_dashboard_inline())
+        return
+    if data == "admin_sync":
+        await query.answer("Syncing member registry...")
+        count = await sync_registered_users_from_sheets()
         await send_or_edit(
-            update, 
-            f"<b>📊 Vertex SACCO Statistics</b>\n\nTotal Registered Members: <b>{count}</b>\n\n<i>Data is synced live from Google Sheets.</i>", 
-            admin_dashboard_inline())
+            update,
+            f"✅ <b>Member Registry Synchronized!</b>\n\n"
+            f"Total active member profiles in cache: <b>{count}</b>\n\n"
+            "<i>All members in Google Sheets are now auto-restored on `/start`.</i>",
+            admin_dashboard_inline()
+        )
+        return
+    if data == "admin_broadcast":
+        if str(query.from_user.id) != ADMIN_ID:
+            await query.answer("⛔ Admin only.", show_alert=True)
+            return
+        await start_broadcast_wizard(update, context)
+        return
+    if data == "broadcast_no_buttons":
+        if str(query.from_user.id) != ADMIN_ID:
+            await query.answer("⛔ Admin only.", show_alert=True)
+            return
+        draft = context.user_data.get(BROADCAST_DRAFT_KEY, {})
+        draft["markup"] = None
+        context.user_data["state"] = STATE_BROADCAST_CONFIRM
+        await show_broadcast_preview(update, context)
+        return
+    if data == "broadcast_send_now":
+        if str(query.from_user.id) != ADMIN_ID:
+            await query.answer("⛔ Admin only.", show_alert=True)
+            return
+        await execute_broadcast(update, context)
         return
     if data == "admin_get_file_id":
         if str(query.from_user.id) != ADMIN_ID:
@@ -1207,6 +1586,52 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 "There was an issue saving your registration. Our team has been notified, but you can try again or contact support.",
                 reply_markup=phone_registration_keyboard()
             )
+        return
+
+    # --- Broadcast States ---
+    if state == STATE_BROADCAST_MEDIA:
+        if str(user.id) != ADMIN_ID:
+            context.user_data["state"] = None
+            return
+
+        draft = {
+            "chat_id": message.chat_id,
+            "message_id": message.message_id,
+            "summary": summarize_message(message),
+        }
+        context.user_data[BROADCAST_DRAFT_KEY] = draft
+        context.user_data["state"] = STATE_BROADCAST_BUTTONS
+
+        btn_prompt = (
+            "✅ <b>Broadcast Media/Content Saved!</b>\n\n"
+            "Would you like to attach custom <b>Inline Buttons</b> to this broadcast post?\n\n"
+            "Type your button specs in format:\n"
+            "<code>Button Title | https://example.com</code>\n"
+            "<i>(For multiple buttons, place each on a new line)</i>\n\n"
+            "Or tap <b>Skip Buttons</b> below if no buttons are needed."
+        )
+        skip_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("⏩ Skip Buttons", callback_data="broadcast_no_buttons")],
+            [InlineKeyboardButton("❌ Cancel Broadcast", callback_data="admin_panel")]
+        ])
+        await safe_telegram_call(
+            lambda: message.reply_text(btn_prompt, parse_mode=ParseMode.HTML, reply_markup=skip_keyboard),
+            "asking for broadcast inline buttons"
+        )
+        return
+
+    if state == STATE_BROADCAST_BUTTONS:
+        if str(user.id) != ADMIN_ID:
+            context.user_data["state"] = None
+            return
+
+        parsed_markup = parse_inline_buttons(text)
+        draft = context.user_data.get(BROADCAST_DRAFT_KEY, {})
+        draft["buttons_text"] = text
+        draft["markup"] = parsed_markup
+        context.user_data["state"] = STATE_BROADCAST_CONFIRM
+
+        await show_broadcast_preview(update, context)
         return
 
     # --- Admin File ID Tool Handling ---
@@ -1460,8 +1885,13 @@ def maybe_start_render_health_server() -> None:
     logger.info("Render health server listening on %s:%s", RENDER_HOST, port)
 
 
+async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await start_broadcast_wizard(update, context)
+
+
 def main() -> None:
     load_content()
+    load_registered_users_cache()
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is missing. Set it in your .env file.")
 
@@ -1503,6 +1933,7 @@ def main() -> None:
     application.add_handler(CommandHandler("menu", menu_command))
     application.add_handler(CommandHandler("clear", clear_command))
     application.add_handler(CommandHandler("admin", admin_command))
+    application.add_handler(CommandHandler("broadcast", broadcast_command))
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)
