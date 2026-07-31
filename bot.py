@@ -1228,26 +1228,17 @@ async def start_loan_calculator(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data["state"] = STATE_CALC_AMOUNT
 
     text = (
-        "<b>🧮 Vertex SACCO Loan Calculator</b>\n"
-        "<i>Accurate Reducing Balance Amortization</i>\n\n"
-        "Let's calculate your monthly repayment step-by-step.\n\n"
-        "📝 <b>Step 1 of 3:</b> Enter your <b>Loan Amount</b>\n\n"
-        "💡 <b>Quick Examples:</b>\n"
-        "• Type: <code>100000</code> (for 100,000 ETB)\n"
-        "• Type: <code>500k</code> (for 500,000 ETB)\n"
-        "• Type: <code>1.5m</code> (for 1,500,000 ETB)\n\n"
-        "<i>Or select a sample amount below to start:</i>"
+        "<b>🧮 Vertex SACCO Loan Calculator</b>\n\n"
+        "📝 <b>Step 1 of 3: Loan Amount</b>\n\n"
+        "Please enter the loan amount in ETB:\n\n"
+        "💡 <b>Examples:</b>\n"
+        "• <code>100000</code> (100 thousand)\n"
+        "• <code>500000</code> (500 thousand)\n"
+        "• <code>1000000</code> (1 million)\n\n"
+        "<b>Just type the number and send!</b>"
     )
     keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("100,000 ETB", callback_data="calc_amount_100k"),
-            InlineKeyboardButton("500,000 ETB", callback_data="calc_amount_500k"),
-        ],
-        [
-            InlineKeyboardButton("1,000,000 ETB", callback_data="calc_amount_1m"),
-            InlineKeyboardButton("2,000,000 ETB", callback_data="calc_amount_2m"),
-        ],
-        [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")]
+        [InlineKeyboardButton("❌ Cancel", callback_data="nav_home")]
     ])
     await send_or_edit(update, text, keyboard)
 
@@ -1259,25 +1250,18 @@ async def prompt_calc_rate(update: Update, context: ContextTypes.DEFAULT_TYPE, a
     context.user_data["state"] = STATE_CALC_RATE
 
     text = (
-        "<b>📝 Step 2 of 3:</b> <b>Annual Interest Rate</b>\n\n"
-        f"✅ <b>Loan Amount:</b> <code>{amount:,.2f} ETB</code>\n\n"
-        "Select a rate or type your own (e.g., <code>12</code> for 12%):" \n\n"
-        "<i>Available loan rates:</i>"
+        "<b>🧮 Vertex SACCO Loan Calculator</b>\n\n"
+        "📝 <b>Step 2 of 3: Interest Rate</b>\n\n"
+        f"✅ Loan Amount: <b>{amount:,.2f} ETB</b>\n\n"
+        "Please enter the annual interest rate (% per year):\n\n"
+        "💡 <b>Examples:</b>\n"
+        "• <code>12</code> (for 12% p.a.)\n"
+        "• <code>14</code> (for 14% p.a.)\n"
+        "• <code>10.5</code> (for 10.5% p.a.)\n\n"
+        "<b>Just type the number and send!</b>"
     )
     keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("9% (Special)", callback_data="calc_rate_9"),
-            InlineKeyboardButton("10% (Standard)", callback_data="calc_rate_10"),
-        ],
-        [
-            InlineKeyboardButton("12% (Standard)", callback_data="calc_rate_12"),
-            InlineKeyboardButton("14% (Regular)", callback_data="calc_rate_14"),
-        ],
-        [
-            InlineKeyboardButton("15% (Emergency)", callback_data="calc_rate_15"),
-            InlineKeyboardButton("18% (Quick)", callback_data="calc_rate_18"),
-        ],
-        [InlineKeyboardButton("🔄 Back", callback_data="calc_start"), InlineKeyboardButton("🟢 Menu", callback_data="nav_home")]
+        [InlineKeyboardButton("🔄 Back", callback_data="calc_start"), InlineKeyboardButton("❌ Cancel", callback_data="nav_home")]
     ])
     await send_or_edit(update, text, keyboard)
 
@@ -1290,26 +1274,19 @@ async def prompt_calc_period(update: Update, context: ContextTypes.DEFAULT_TYPE,
     context.user_data["state"] = STATE_CALC_PERIOD
 
     text = (
-        "<b>📝 Step 3 of 3:</b> <b>Loan Period</b>\n\n"
-        f"✅ <b>Loan Amount:</b> <code>{amount:,.2f} ETB</code>\n"
-        f"✅ <b>Interest Rate:</b> <code>{rate:.1f}% p.a.</code>\n\n"
-        "Select the repayment period or type months (e.g., <code>24</code> for 24 months):\n\n"
-        "<i>Common periods:</i>"
+        "<b>🧮 Vertex SACCO Loan Calculator</b>\n\n"
+        "📝 <b>Step 3 of 3: Loan Period</b>\n\n"
+        f"✅ Loan Amount: <b>{amount:,.2f} ETB</b>\n"
+        f"✅ Interest Rate: <b>{rate:.2f}% p.a.</b>\n\n"
+        "Please enter the loan period in months:\n\n"
+        "💡 <b>Examples:</b>\n"
+        "• <code>6</code> (for 6 months)\n"
+        "• <code>24</code> (for 24 months / 2 years)\n"
+        "• <code>36</code> (for 36 months / 3 years)\n\n"
+        "<b>Just type the number and send!</b>"
     )
     keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("6 Mos", callback_data="calc_period_6"),
-            InlineKeyboardButton("12 Mos", callback_data="calc_period_12"),
-        ],
-        [
-            InlineKeyboardButton("24 Mos", callback_data="calc_period_24"),
-            InlineKeyboardButton("36 Mos", callback_data="calc_period_36"),
-        ],
-        [
-            InlineKeyboardButton("48 Mos", callback_data="calc_period_48"),
-            InlineKeyboardButton("60 Mos", callback_data="calc_period_60"),
-        ],
-        [InlineKeyboardButton("🔄 Back", callback_data="calc_start"), InlineKeyboardButton("🟢 Menu", callback_data="nav_home")]
+        [InlineKeyboardButton("🔄 Back", callback_data="calc_start"), InlineKeyboardButton("❌ Cancel", callback_data="nav_home")]
     ])
     await send_or_edit(update, text, keyboard)
 
@@ -1702,18 +1679,6 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         return
     if data == "calc_start":
         await start_loan_calculator(update, context)
-        return
-    if data == "calc_amount_100k":
-        await prompt_calc_rate(update, context, 100000.0)
-        return
-    if data == "calc_amount_500k":
-        await prompt_calc_rate(update, context, 500000.0)
-        return
-    if data == "calc_amount_1m":
-        await prompt_calc_rate(update, context, 1000000.0)
-        return
-    if data == "calc_amount_2m":
-        await prompt_calc_rate(update, context, 2000000.0)
         return
     if data == "calc_sample_100k":
         context.user_data[CALC_DRAFT_KEY] = {"amount": 100000.0, "rate": 12.0}
