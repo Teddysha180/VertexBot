@@ -629,6 +629,20 @@ def normalize_words(text: str) -> list[str]:
     return [word for word in cleaned.split() if word]
 
 
+def clean_ai_formatting(text: str) -> str:
+    if not text:
+        return text
+    # Convert markdown headers ### Header -> <b>Header</b>
+    text = re.sub(r"^#{1,6}\s*(.*?)$", r"<b>\1</b>", text, flags=re.MULTILINE)
+    # Convert **bold** to <b>bold</b>
+    text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", text)
+    # Convert *italic* or _italic_ to <i>italic</i>
+    text = re.sub(r"(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)", r"<i>\1</i>", text)
+    # Convert `code` to <code>code</code>
+    text = re.sub(r"`(.*?)`", r"<code>\1</code>", text)
+    return text
+
+
 AI_GREETING_WORDS = {"hi", "hello", "hey", "sup", "bro", "broo", "brow"}
 AI_THANKS_WORDS = {"thanks", "thank"}
 AI_MEMORY_REFERENCES = {"it", "that", "this", "they", "there"}
@@ -1798,11 +1812,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if message.text:
         remember_message(context, "user", text)
         await show_typing(update, context)
-        ai_answer = await generate_ai_reply(context, text)
+        raw_ai_answer = await generate_ai_reply(context, text)
+        ai_answer = clean_ai_formatting(raw_ai_answer)
         remember_message(context, "assistant", ai_answer)
         await safe_telegram_call(
             lambda: message.reply_text(
                 ai_answer,
+                parse_mode=ParseMode.HTML,
                 disable_web_page_preview=True,
             ),
             "sending AI reply",
