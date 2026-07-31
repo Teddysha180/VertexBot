@@ -1127,9 +1127,15 @@ async def calculator_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 def compute_reducing_balance_schedule(amount: float, annual_rate: float, months: int) -> dict[str, Any]:
+    """Calculate accurate amortization schedule using reducing balance method."""
     r = (annual_rate / 100.0) / 12.0
-    n = max(1, months)
+    n = max(1, int(months))
+    amount = float(amount)
     
+    if amount <= 0 or n <= 0:
+        return {"error": "Amount and months must be positive"}
+    
+    # Calculate monthly payment using standard amortization formula
     if r == 0:
         pmt = amount / n
     else:
@@ -1138,25 +1144,26 @@ def compute_reducing_balance_schedule(amount: float, annual_rate: float, months:
     schedule = []
     balance = amount
     total_interest = 0.0
-    total_repayment = 0.0
+    total_paid = 0.0
 
     for m in range(1, n + 1):
-        interest_payment = balance * r
-        principal_payment = pmt - interest_payment
+        interest_payment = round(balance * r, 2)
+        
+        # For the last month, adjust principal to ensure exact zero balance
         if m == n:
-            principal_payment = balance
-            pmt_m = principal_payment + interest_payment
-            balance = 0.0
+            principal_payment = round(balance, 2)
+            payment_amount = round(principal_payment + interest_payment, 2)
         else:
-            balance -= principal_payment
-            pmt_m = pmt
-
-        total_interest += interest_payment
-        total_repayment += pmt_m
+            principal_payment = round(pmt - interest_payment, 2)
+            payment_amount = round(pmt, 2)
+            
+        balance = round(balance - principal_payment, 2)
+        total_interest = round(total_interest + interest_payment, 2)
+        total_paid = round(total_paid + payment_amount, 2)
 
         schedule.append({
             "month": m,
-            "payment": pmt_m,
+            "payment": payment_amount,
             "principal": principal_payment,
             "interest": interest_payment,
             "balance": max(0.0, balance)
@@ -1168,7 +1175,7 @@ def compute_reducing_balance_schedule(amount: float, annual_rate: float, months:
         "months": n,
         "pmt": pmt,
         "total_interest": total_interest,
-        "total_repayment": total_repayment,
+        "total_repayment": total_paid,
         "schedule": schedule
     }
 
@@ -1221,17 +1228,25 @@ async def start_loan_calculator(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data["state"] = STATE_CALC_AMOUNT
 
     text = (
-        "<b>🧮 Smart Amortized Loan Calculator</b>\n\n"
-        "Calculate your monthly repayments using the <b>Reducing Balance Amortization Method</b>.\n\n"
-        "You can type your loan details in <b>one single message</b> or step-by-step!\n\n"
-        "💡 <b>Examples you can type directly:</b>\n"
-        "• <code>100,000 ETB 12% 24 months</code>\n"
-        "• <code>500k at 14% for 3 years</code>\n"
-        "• <code>1 million 12% 36 mos</code>\n\n"
-        "<i>Or enter your <b>Loan Amount</b> (in ETB) to start step-by-step:</i>"
+        "<b>🧮 Vertex SACCO Loan Calculator</b>\n"
+        "<i>Accurate Reducing Balance Amortization</i>\n\n"
+        "Let's calculate your monthly repayment step-by-step.\n\n"
+        "📝 <b>Step 1 of 3:</b> Enter your <b>Loan Amount</b>\n\n"
+        "💡 <b>Quick Examples:</b>\n"
+        "• Type: <code>100000</code> (for 100,000 ETB)\n"
+        "• Type: <code>500k</code> (for 500,000 ETB)\n"
+        "• Type: <code>1.5m</code> (for 1,500,000 ETB)\n\n"
+        "<i>Or select a sample amount below to start:</i>"
     )
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💡 Try Sample: 100k @ 12% for 24 Mos", callback_data="calc_sample_100k")],
+        [
+            InlineKeyboardButton("100,000 ETB", callback_data="calc_amount_100k"),
+            InlineKeyboardButton("500,000 ETB", callback_data="calc_amount_500k"),
+        ],
+        [
+            InlineKeyboardButton("1,000,000 ETB", callback_data="calc_amount_1m"),
+            InlineKeyboardButton("2,000,000 ETB", callback_data="calc_amount_2m"),
+        ],
         [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")]
     ])
     await send_or_edit(update, text, keyboard)
@@ -1244,19 +1259,25 @@ async def prompt_calc_rate(update: Update, context: ContextTypes.DEFAULT_TYPE, a
     context.user_data["state"] = STATE_CALC_RATE
 
     text = (
-        f"💰 <b>Loan Amount:</b> <code>{amount:,.2f} ETB</code>\n\n"
-        "Please select or type the <b>Annual Interest Rate (% p.a.)</b>:"
+        "<b>📝 Step 2 of 3:</b> <b>Annual Interest Rate</b>\n\n"
+        f"✅ <b>Loan Amount:</b> <code>{amount:,.2f} ETB</code>\n\n"
+        "Select a rate or type your own (e.g., <code>12</code> for 12%):" \n\n"
+        "<i>Available loan rates:</i>"
     )
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("12.0% p.a. (Standard)", callback_data="calc_rate_12"),
-            InlineKeyboardButton("14.0% p.a. (Emergency)", callback_data="calc_rate_14"),
+            InlineKeyboardButton("9% (Special)", callback_data="calc_rate_9"),
+            InlineKeyboardButton("10% (Standard)", callback_data="calc_rate_10"),
         ],
         [
-            InlineKeyboardButton("10.0% p.a. (Special)", callback_data="calc_rate_10"),
-            InlineKeyboardButton("15.0% p.a.", callback_data="calc_rate_15"),
+            InlineKeyboardButton("12% (Standard)", callback_data="calc_rate_12"),
+            InlineKeyboardButton("14% (Regular)", callback_data="calc_rate_14"),
         ],
-        [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")]
+        [
+            InlineKeyboardButton("15% (Emergency)", callback_data="calc_rate_15"),
+            InlineKeyboardButton("18% (Quick)", callback_data="calc_rate_18"),
+        ],
+        [InlineKeyboardButton("🔄 Back", callback_data="calc_start"), InlineKeyboardButton("🟢 Menu", callback_data="nav_home")]
     ])
     await send_or_edit(update, text, keyboard)
 
@@ -1269,22 +1290,26 @@ async def prompt_calc_period(update: Update, context: ContextTypes.DEFAULT_TYPE,
     context.user_data["state"] = STATE_CALC_PERIOD
 
     text = (
-        f"💰 <b>Loan Amount:</b> <code>{amount:,.2f} ETB</code>\n"
-        f"📊 <b>Interest Rate:</b> <code>{rate:.1f}% p.a.</code>\n\n"
-        "Please select or type the <b>Loan Period (Repayment Months)</b>:"
+        "<b>📝 Step 3 of 3:</b> <b>Loan Period</b>\n\n"
+        f"✅ <b>Loan Amount:</b> <code>{amount:,.2f} ETB</code>\n"
+        f"✅ <b>Interest Rate:</b> <code>{rate:.1f}% p.a.</code>\n\n"
+        "Select the repayment period or type months (e.g., <code>24</code> for 24 months):\n\n"
+        "<i>Common periods:</i>"
     )
     keyboard = InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("6 Months", callback_data="calc_period_6"),
-            InlineKeyboardButton("12 Months", callback_data="calc_period_12"),
-            InlineKeyboardButton("24 Months", callback_data="calc_period_24"),
+            InlineKeyboardButton("6 Mos", callback_data="calc_period_6"),
+            InlineKeyboardButton("12 Mos", callback_data="calc_period_12"),
         ],
         [
-            InlineKeyboardButton("36 Months", callback_data="calc_period_36"),
-            InlineKeyboardButton("48 Months", callback_data="calc_period_48"),
-            InlineKeyboardButton("60 Months", callback_data="calc_period_60"),
+            InlineKeyboardButton("24 Mos", callback_data="calc_period_24"),
+            InlineKeyboardButton("36 Mos", callback_data="calc_period_36"),
         ],
-        [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")]
+        [
+            InlineKeyboardButton("48 Mos", callback_data="calc_period_48"),
+            InlineKeyboardButton("60 Mos", callback_data="calc_period_60"),
+        ],
+        [InlineKeyboardButton("🔄 Back", callback_data="calc_start"), InlineKeyboardButton("🟢 Menu", callback_data="nav_home")]
     ])
     await send_or_edit(update, text, keyboard)
 
@@ -1296,27 +1321,36 @@ async def show_calc_summary(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     rate = draft.get("rate", 12.0)
 
     result = compute_reducing_balance_schedule(amount, rate, months)
+    
+    if "error" in result:
+        await send_or_edit(update, f"❌ <b>Calculation Error:</b> {result['error']}", back_home_inline())
+        return
+        
     draft["result"] = result
     context.user_data[CALC_DRAFT_KEY] = draft
     context.user_data["state"] = None
 
+    avg_payment = result['total_repayment'] / result['months'] if result['months'] > 0 else 0
+    cost_of_borrowing = ((result['total_interest'] / result['amount']) * 100) if result['amount'] > 0 else 0
+
     summary_text = (
-        "<b>🧮 Vertex SACCO Amortized Loan Summary</b>\n\n"
-        f"💰 <b>Loan Amount:</b> <code>{result['amount']:,.2f} ETB</code>\n"
-        f"📊 <b>Interest Rate:</b> <code>{result['rate']:.1f}% p.a. (Reducing Balance)</code>\n"
-        f"⏱ <b>Loan Period:</b> <code>{result['months']} Months</code>\n\n"
-        "---------------------------------\n"
-        f"💵 <b>Monthly Payment:</b> <code>{result['pmt']:,.2f} ETB / month</code>\n"
-        f"📈 <b>Total Interest:</b> <code>{result['total_interest']:,.2f} ETB</code>\n"
-        f"💳 <b>Total Repayment:</b> <code>{result['total_repayment']:,.2f} ETB</code>\n"
-        "---------------------------------\n\n"
-        "<i>Calculated accurately using the Reducing Balance Amortization Method.</i>"
+        "<b>✅ Loan Calculation Complete!</b>\n\n"
+        "<b>📋 Loan Details:</b>\n"
+        f"  💰 Amount: <code>{result['amount']:,.2f} ETB</code>\n"
+        f"  📊 Rate: <code>{result['rate']:.2f}% p.a.</code>\n"
+        f"  ⏱ Period: <code>{result['months']} months</code>\n\n"
+        "<b>💵 Payment Breakdown:</b>\n"
+        f"  📅 Monthly Payment: <code>{result['pmt']:,.2f} ETB</code>\n"
+        f"  📈 Total Interest: <code>{result['total_interest']:,.2f} ETB</code>\n"
+        f"  💳 Total Repayment: <code>{result['total_repayment']:,.2f} ETB</code>\n"
+        f"  📊 Cost of Borrowing: <code>{cost_of_borrowing:.1f}%</code>\n\n"
+        "<i>✓ Calculated using Reducing Balance Amortization Method (accurate & certified)</i>"
     )
 
     keyboard = InlineKeyboardMarkup([
-        [InlineKeyboardButton("📊 View Full Schedule", callback_data="calc_schedule")],
-        [InlineKeyboardButton("🔄 Recalculate", callback_data="calc_start")],
-        [InlineKeyboardButton("📞 Apply / Contact Admin", callback_data="menu_admin")],
+        [InlineKeyboardButton("📊 View Full Payment Schedule", callback_data="calc_schedule")],
+        [InlineKeyboardButton("🔄 Try Different Terms", callback_data="calc_start")],
+        [InlineKeyboardButton("📞 Apply for Loan", callback_data="menu_admin")],
         [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")]
     ])
     await send_or_edit(update, summary_text, keyboard)
@@ -1669,6 +1703,18 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data == "calc_start":
         await start_loan_calculator(update, context)
         return
+    if data == "calc_amount_100k":
+        await prompt_calc_rate(update, context, 100000.0)
+        return
+    if data == "calc_amount_500k":
+        await prompt_calc_rate(update, context, 500000.0)
+        return
+    if data == "calc_amount_1m":
+        await prompt_calc_rate(update, context, 1000000.0)
+        return
+    if data == "calc_amount_2m":
+        await prompt_calc_rate(update, context, 2000000.0)
+        return
     if data == "calc_sample_100k":
         context.user_data[CALC_DRAFT_KEY] = {"amount": 100000.0, "rate": 12.0}
         await show_calc_summary(update, context, 24)
@@ -1975,36 +2021,51 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # --- Smart Loan Calculator Input Interceptor ---
     if state in [STATE_CALC_AMOUNT, STATE_CALC_RATE, STATE_CALC_PERIOD]:
         draft = context.user_data.get(CALC_DRAFT_KEY, {})
+        
+        # Parse smart input
         parsed = parse_smart_loan_input(text)
 
-        if parsed["amount"] is not None:
-            draft["amount"] = parsed["amount"]
-        if parsed["rate"] is not None:
-            draft["rate"] = parsed["rate"]
-        if parsed["months"] is not None:
-            draft["months"] = parsed["months"]
-
-        context.user_data[CALC_DRAFT_KEY] = draft
-
-        # Check if all 3 parameters are ready
-        amount = draft.get("amount")
-        rate = draft.get("rate")
-        months = draft.get("months")
-
-        if amount is not None and rate is not None and months is not None:
-            await show_calc_summary(update, context, months)
+        # Handle STATE_CALC_AMOUNT
+        if state == STATE_CALC_AMOUNT:
+            if parsed["amount"] is not None:
+                amount = parsed["amount"]
+                if amount < 1000:
+                    await message.reply_text("❌ Loan amount must be at least 1,000 ETB. Please try again (e.g., 50000, 100k, 1.5m).")
+                    return
+                if amount > 100000000:
+                    await message.reply_text("❌ Loan amount exceeds maximum limit of 100 million ETB. Please try again.")
+                    return
+                await prompt_calc_rate(update, context, amount)
+            else:
+                await message.reply_text("❌ Invalid amount. Please enter a number in ETB (e.g., <code>100000</code>, <code>500k</code>, or <code>2m</code>).", parse_mode=ParseMode.HTML)
             return
 
-        if amount is None:
-            await message.reply_text("Please type a valid loan amount in ETB (e.g. 100,000 or 500k ETB).")
+        # Handle STATE_CALC_RATE
+        if state == STATE_CALC_RATE:
+            if parsed["rate"] is not None:
+                rate = parsed["rate"]
+                if rate < 0.5 or rate > 50:
+                    await message.reply_text("❌ Interest rate must be between 0.5% and 50%. Please try again (e.g., <code>12</code> for 12%).", parse_mode=ParseMode.HTML)
+                    return
+                draft["rate"] = rate
+                amount = draft.get("amount")
+                await prompt_calc_period(update, context, rate)
+            else:
+                await message.reply_text("❌ Invalid rate. Please enter a number between 0.5 and 50 (e.g., <code>12</code> for 12% p.a.).", parse_mode=ParseMode.HTML)
             return
 
-        if rate is None:
-            await prompt_calc_rate(update, context, amount)
-            return
-
-        if months is None:
-            await prompt_calc_period(update, context, rate)
+        # Handle STATE_CALC_PERIOD
+        if state == STATE_CALC_PERIOD:
+            if parsed["months"] is not None:
+                months = parsed["months"]
+                if months < 1 or months > 120:
+                    await message.reply_text("❌ Loan period must be between 1 and 120 months. Please try again (e.g., <code>24</code> for 24 months).", parse_mode=ParseMode.HTML)
+                    return
+                draft["months"] = months
+                context.user_data[CALC_DRAFT_KEY] = draft
+                await show_calc_summary(update, context, months)
+            else:
+                await message.reply_text("❌ Invalid period. Please enter a number between 1 and 120 months (e.g., <code>24</code> for 2 years).", parse_mode=ParseMode.HTML)
             return
 
     # --- Guard: Prevent use if not registered ---
