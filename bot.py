@@ -91,6 +91,8 @@ BTN_SUPPORT_SEND = "✅ Send Message"
 BTN_SUPPORT_CANCEL = "❌ Cancel Message"
 BTN_MAIN_MENU = "🟢 Main Menu"
 
+BTN_CALCULATOR = "🧮 Loan Calculator"
+
 STATE_REG_NAME = "reg_name"
 STATE_REG_PHONE = "reg_phone"
 STATE_CONTACT_ADMIN = "contact_admin"
@@ -99,9 +101,13 @@ STATE_GET_FILE_ID = "get_file_id"
 STATE_BROADCAST_MEDIA = "broadcast_media"
 STATE_BROADCAST_BUTTONS = "broadcast_buttons"
 STATE_BROADCAST_CONFIRM = "broadcast_confirm"
+STATE_CALC_AMOUNT = "calc_amount"
+STATE_CALC_RATE = "calc_rate"
+STATE_CALC_PERIOD = "calc_period"
 
 SUPPORT_DRAFT_KEY = "support_draft"
 BROADCAST_DRAFT_KEY = "broadcast_draft"
+CALC_DRAFT_KEY = "calc_draft"
 IS_REGISTERED_KEY = "is_registered"
 REG_DATA_NAME = "reg_data_name"
 
@@ -157,9 +163,9 @@ def save_registered_user_cache(user_id: int | str, name: str = "", phone: str = 
 def home_keyboard(user_id: Optional[int] = None) -> ReplyKeyboardMarkup:
     buttons = [
         [BTN_AI, BTN_FAQ],
-        [BTN_SERVICES, BTN_BRANCHES],
-        [BTN_PROFILE, BTN_ADMIN],
-        [BTN_FEEDBACK],
+        [BTN_SERVICES, BTN_CALCULATOR],
+        [BTN_BRANCHES, BTN_PROFILE],
+        [BTN_ADMIN, BTN_FEEDBACK],
     ]
     if str(user_id) == ADMIN_ID:
         buttons.append([BTN_ADMIN_PANEL])
@@ -245,6 +251,7 @@ def admin_dashboard_inline() -> InlineKeyboardMarkup:
 def services_inline() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
+            [InlineKeyboardButton("🧮 Amortized Loan Calculator", callback_data="calc_start")],
             [InlineKeyboardButton("💰 Savings Services", callback_data="service_savings")],
             [InlineKeyboardButton("📈 Loan Services", callback_data="service_loans")],
             [InlineKeyboardButton("💻 Digital Services", callback_data="service_digital")],
@@ -1104,6 +1111,217 @@ async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
 
 
+async def calculator_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await is_user_registered(update, context):
+        return
+    await start_loan_calculator(update, context)
+
+
+def compute_reducing_balance_schedule(amount: float, annual_rate: float, months: int) -> dict[str, Any]:
+    r = (annual_rate / 100.0) / 12.0
+    n = max(1, months)
+    
+    if r == 0:
+        pmt = amount / n
+    else:
+        pmt = amount * (r * ((1 + r) ** n)) / (((1 + r) ** n) - 1)
+
+    schedule = []
+    balance = amount
+    total_interest = 0.0
+    total_repayment = 0.0
+
+    for m in range(1, n + 1):
+        interest_payment = balance * r
+        principal_payment = pmt - interest_payment
+        if m == n:
+            principal_payment = balance
+            pmt_m = principal_payment + interest_payment
+            balance = 0.0
+        else:
+            balance -= principal_payment
+            pmt_m = pmt
+
+        total_interest += interest_payment
+        total_repayment += pmt_m
+
+        schedule.append({
+            "month": m,
+            "payment": pmt_m,
+            "principal": principal_payment,
+            "interest": interest_payment,
+            "balance": max(0.0, balance)
+        })
+
+    return {
+        "amount": amount,
+        "rate": annual_rate,
+        "months": n,
+        "pmt": pmt,
+        "total_interest": total_interest,
+        "total_repayment": total_repayment,
+        "schedule": schedule
+    }
+
+
+async def start_loan_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    context.user_data[CALC_DRAFT_KEY] = {}
+    context.user_data["state"] = STATE_CALC_AMOUNT
+
+    text = (
+        "<b>🧮 Amortized Loan Repayment Calculator</b>\n\n"
+        "Calculate your monthly repayments using the <b>Reducing Balance Amortization Method</b>.\n\n"
+        "Please select or type your desired <b>Loan Amount</b> (in Ethiopian Birr - ETB):"
+    )
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("50,000 ETB", callback_data="calc_amt_50000"),
+            InlineKeyboardButton("100,000 ETB", callback_data="calc_amt_100000"),
+        ],
+        [
+            InlineKeyboardButton("250,000 ETB", callback_data="calc_amt_250000"),
+            InlineKeyboardButton("500,000 ETB", callback_data="calc_amt_500000"),
+        ],
+        [
+            InlineKeyboardButton("1,000,000 ETB", callback_data="calc_amt_1000000"),
+            InlineKeyboardButton("2,000,000 ETB", callback_data="calc_amt_2000000"),
+        ],
+        [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")]
+    ])
+    await send_or_edit(update, text, keyboard)
+
+
+async def prompt_calc_rate(update: Update, context: ContextTypes.DEFAULT_TYPE, amount: float) -> None:
+    draft = context.user_data.get(CALC_DRAFT_KEY, {})
+    draft["amount"] = amount
+    context.user_data[CALC_DRAFT_KEY] = draft
+    context.user_data["state"] = STATE_CALC_RATE
+
+    text = (
+        f"💰 <b>Loan Amount:</b> <code>{amount:,.2f} ETB</code>\n\n"
+        "Please select or type the <b>Annual Interest Rate (% p.a.)</b>:"
+    )
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("12.0% p.a. (Standard)", callback_data="calc_rate_12"),
+            InlineKeyboardButton("14.0% p.a. (Emergency)", callback_data="calc_rate_14"),
+        ],
+        [
+            InlineKeyboardButton("10.0% p.a. (Special)", callback_data="calc_rate_10"),
+            InlineKeyboardButton("15.0% p.a.", callback_data="calc_rate_15"),
+        ],
+        [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")]
+    ])
+    await send_or_edit(update, text, keyboard)
+
+
+async def prompt_calc_period(update: Update, context: ContextTypes.DEFAULT_TYPE, rate: float) -> None:
+    draft = context.user_data.get(CALC_DRAFT_KEY, {})
+    draft["rate"] = rate
+    amount = draft.get("amount", 100000.0)
+    context.user_data[CALC_DRAFT_KEY] = draft
+    context.user_data["state"] = STATE_CALC_PERIOD
+
+    text = (
+        f"💰 <b>Loan Amount:</b> <code>{amount:,.2f} ETB</code>\n"
+        f"📊 <b>Interest Rate:</b> <code>{rate:.1f}% p.a.</code>\n\n"
+        "Please select or type the <b>Loan Period (Repayment Months)</b>:"
+    )
+    keyboard = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("6 Months", callback_data="calc_period_6"),
+            InlineKeyboardButton("12 Months", callback_data="calc_period_12"),
+            InlineKeyboardButton("24 Months", callback_data="calc_period_24"),
+        ],
+        [
+            InlineKeyboardButton("36 Months", callback_data="calc_period_36"),
+            InlineKeyboardButton("48 Months", callback_data="calc_period_48"),
+            InlineKeyboardButton("60 Months", callback_data="calc_period_60"),
+        ],
+        [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")]
+    ])
+    await send_or_edit(update, text, keyboard)
+
+
+async def show_calc_summary(update: Update, context: ContextTypes.DEFAULT_TYPE, months: int) -> None:
+    draft = context.user_data.get(CALC_DRAFT_KEY, {})
+    draft["months"] = months
+    amount = draft.get("amount", 100000.0)
+    rate = draft.get("rate", 12.0)
+
+    result = compute_reducing_balance_schedule(amount, rate, months)
+    draft["result"] = result
+    context.user_data[CALC_DRAFT_KEY] = draft
+    context.user_data["state"] = None
+
+    summary_text = (
+        "<b>🧮 Vertex SACCO Amortized Loan Summary</b>\n\n"
+        f"💰 <b>Loan Amount:</b> <code>{result['amount']:,.2f} ETB</code>\n"
+        f"📊 <b>Interest Rate:</b> <code>{result['rate']:.1f}% p.a. (Reducing Balance)</code>\n"
+        f"⏱ <b>Loan Period:</b> <code>{result['months']} Months</code>\n\n"
+        "---------------------------------\n"
+        f"💵 <b>Monthly Payment:</b> <code>{result['pmt']:,.2f} ETB / month</code>\n"
+        f"📈 <b>Total Interest:</b> <code>{result['total_interest']:,.2f} ETB</code>\n"
+        f"💳 <b>Total Repayment:</b> <code>{result['total_repayment']:,.2f} ETB</code>\n"
+        "---------------------------------\n\n"
+        "<i>Calculated accurately using the Reducing Balance Amortization Method.</i>"
+    )
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📊 View Full Schedule", callback_data="calc_schedule")],
+        [InlineKeyboardButton("🔄 Recalculate", callback_data="calc_start")],
+        [InlineKeyboardButton("📞 Apply / Contact Admin", callback_data="menu_admin")],
+        [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")]
+    ])
+    await send_or_edit(update, summary_text, keyboard)
+
+
+async def show_calc_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    draft = context.user_data.get(CALC_DRAFT_KEY, {})
+    result = draft.get("result")
+    if not result:
+        await start_loan_calculator(update, context)
+        return
+
+    schedule = result["schedule"]
+    amount = result["amount"]
+    rate = result["rate"]
+    months = result["months"]
+
+    header = (
+        "<b>📊 Monthly Amortization Schedule (Reducing Balance)</b>\n"
+        f"💰 <b>Amount:</b> <code>{amount:,.2f} ETB</code> | <b>Rate:</b> <code>{rate:.1f}% p.a.</code> | <b>Term:</b> <code>{months} Mos</code>\n\n"
+    )
+
+    lines = ["Month |  Payment   | Principal  |  Interest  | Balance"]
+    lines.append("-------------------------------------------------------")
+
+    for item in schedule:
+        m_str = f"M{item['month']:<4}"
+        pmt_str = f"{item['payment']:>10,.2f}"
+        prn_str = f"{item['principal']:>10,.2f}"
+        int_str = f"{item['interest']:>10,.2f}"
+        bal_str = f"{item['balance']:>10,.2f}"
+        lines.append(f"{m_str}|{pmt_str}|{prn_str}|{int_str}|{bal_str}")
+
+    lines.append("-------------------------------------------------------")
+    tot_pmt = f"{result['total_repayment']:>10,.2f}"
+    tot_prn = f"{amount:>10,.2f}"
+    tot_int = f"{result['total_interest']:>10,.2f}"
+    lines.append(f"Total |{tot_pmt}|{tot_prn}|{tot_int}|      0.00 ETB")
+
+    table_text = "<pre><code>" + html.escape("\n".join(lines)) + "</code></pre>"
+    full_text = header + table_text
+
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Recalculate", callback_data="calc_start")],
+        [InlineKeyboardButton("📞 Apply / Contact Admin", callback_data="menu_admin")],
+        [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")]
+    ])
+
+    await send_or_edit(update, full_text, keyboard)
+
+
 async def admin_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     # Admin bypasses registration check
     await show_admin_dashboard(update, context)
@@ -1402,6 +1620,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         await execute_broadcast(update, context)
         return
+    if data == "calc_start":
+        await start_loan_calculator(update, context)
+        return
+    if data.startswith("calc_amt_"):
+        amt_str = data.split("_")[-1]
+        await prompt_calc_rate(update, context, float(amt_str))
+        return
+    if data.startswith("calc_rate_"):
+        rate_str = data.split("_")[-1]
+        await prompt_calc_period(update, context, float(rate_str))
+        return
+    if data.startswith("calc_period_"):
+        period_str = data.split("_")[-1]
+        await show_calc_summary(update, context, int(period_str))
+        return
+    if data == "calc_schedule":
+        await show_calc_schedule(update, context)
+        return
     if data == "admin_get_file_id":
         if str(query.from_user.id) != ADMIN_ID:
             await query.answer("⛔ Admin only.", show_alert=True)
@@ -1690,6 +1926,43 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.user_data["state"] = None
         return
 
+    # --- Loan Calculator Custom Text Input State Handling ---
+    if state == STATE_CALC_AMOUNT:
+        try:
+            clean_val = text.replace(",", "").replace("ETB", "").replace("birr", "").replace("etb", "").strip()
+            val = float(clean_val)
+            if val <= 0:
+                raise ValueError()
+            await prompt_calc_rate(update, context, val)
+            return
+        except ValueError:
+            await message.reply_text("Please enter a valid positive loan amount in ETB (e.g. 100000 or 250,000 ETB).")
+            return
+
+    if state == STATE_CALC_RATE:
+        try:
+            clean_val = text.replace("%", "").replace("p.a.", "").strip()
+            val = float(clean_val)
+            if val <= 0 or val > 100:
+                raise ValueError()
+            await prompt_calc_period(update, context, val)
+            return
+        except ValueError:
+            await message.reply_text("Please enter a valid annual interest rate percentage (e.g. 12 or 14.5).")
+            return
+
+    if state == STATE_CALC_PERIOD:
+        try:
+            clean_val = text.replace("months", "").replace("month", "").replace("mos", "").strip()
+            val = int(clean_val)
+            if val <= 0 or val > 120:
+                raise ValueError()
+            await show_calc_summary(update, context, val)
+            return
+        except ValueError:
+            await message.reply_text("Please enter a valid number of repayment months (e.g. 12, 24, 36, or 48).")
+            return
+
     # --- Guard: Prevent use if not registered ---
     if not await is_user_registered(update, context):
         return
@@ -1702,6 +1975,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
         if text == BTN_AI:
             await show_ai_assistant(update, context)
+            return
+        if text == BTN_CALCULATOR:
+            await start_loan_calculator(update, context)
             return
         if text == BTN_FAQ:
             await show_faq(update, context)
@@ -1815,14 +2091,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         raw_ai_answer = await generate_ai_reply(context, text)
         ai_answer = clean_ai_formatting(raw_ai_answer)
         remember_message(context, "assistant", ai_answer)
-        await safe_telegram_call(
-            lambda: message.reply_text(
-                ai_answer,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=True,
-            ),
-            "sending AI reply",
-        )
+        try:
+            await safe_telegram_call(
+                lambda: message.reply_text(
+                    ai_answer,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True,
+                ),
+                "sending AI reply HTML",
+            )
+        except Exception as html_err:
+            logger.warning("Telegram HTML parse failed for AI answer (%s). Falling back to plain text.", html_err)
+            await safe_telegram_call(
+                lambda: message.reply_text(
+                    ai_answer,
+                    disable_web_page_preview=True,
+                ),
+                "sending fallback plain text AI reply",
+            )
         return
 
     remember_message(context, "user", summarize_message(message))
@@ -1959,6 +2245,7 @@ def main() -> None:
     application.add_handler(CommandHandler("clear", clear_command))
     application.add_handler(CommandHandler("admin", admin_command))
     application.add_handler(CommandHandler("broadcast", broadcast_command))
+    application.add_handler(CommandHandler("calculator", calculator_command))
     application.add_handler(CallbackQueryHandler(handle_callback))
     application.add_handler(MessageHandler(filters.ALL & ~filters.COMMAND, handle_message))
     application.add_error_handler(error_handler)
