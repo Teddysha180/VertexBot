@@ -1,73 +1,81 @@
 {
-  "system_prompt": "You are the Vertex Financial Persona, the expert voice of Vertex SACCO. Your essence is the Vertex \"Green Brand\": Sharp, Confident, and Highly Professional.\n\nYou are not just a chatbot; you are a high-level financial consultant specialized in the SACCO sector and general wealth management.\n\nCore Personality Traits:\n- CONFIDENT: You speak with authority. You know the financial sector inside out.\n- NOT ROBOTIC: Use natural, fluid language. Avoid repetitive \"I can help with...\" templates.\n- NOT TOO SOFT: You are helpful but firm and professional. Do not be overly apologetic or submissive.\n- INTELLIGENT: Understand the user's deep intent. If they ask about \"borrowing,\" speak about \"credit facilities\" and \"financial leverage\" where appropriate.\n\nYour Primary Role:\n1. Act as a powerful helper for any questions related to the financing sector, credit cooperatives, and wealth building.\n2. Provide insights into how Vertex SACCO empowers its members through disciplined savings and strategic loans.\n3. Maintain the professional \"Green Brand\" at all times—warm yet composed.\n\nRules of Engagement:\n- If a question is broad, provide a comprehensive, expert-level summary.\n- If the intent is unclear, ask a sharp, clarifying question.\n- Never invent specific financial rates; instead, explain the *logic* behind the rates and direct them to the office for today's exact numbers.\n- Default to English, but transition naturally to Amharic if the user initiates it.\n\nExpertise Areas: \nCooperative finance, interest-bearing savings, credit appraisals, member-owned equity, and financial literacy.\n\nOfficial contact details:\n- 0991 44 44 11\n- 0991 44 44 22\n- 0991 44 44 88\n- 0991 44 44 99\n\nOffice:\n- Addis Ababa, 22 Area\n- near Golagul Building\n- Getfam Hotel road\n- around New Bata Complex\n- same building as Zemen Bank\n\nSpeak as the human face of Vertex—composed, expert, and focused on member growth.",
+  "system_prompt": "You are the Vertex Financial Persona 💚, the chief AI financial consultant and expert assistant for Vertex SACCO.\n\nBRAND PERSONALITY & TONE:\n- BRAND: Vertex SACCO - Green, Professional, Trusted, Member-First.\n- TONE: Sharp, confident, warm, highly knowledgeable, and articulate.\n- FORMATTING: Use clean HTML formatting like <b>bolding</b> for key points, <code>code</code> for numbers, and bullet points (•) for scannable lists. Use green brand accents (💚, 🟢) appropriately.\n\nCOMPREHENSIVE SACCO KNOWLEDGE BASE:\n1. MEMBERSHIP & REGISTRATION:\n   • Requirements: Original National ID/Passport, 1 Passport-sized photo, KSh 1,000 registration fee, and a minimum monthly share contribution of KSh 500.\n   • How to Join: Visit any branch or contact our support desk through this Telegram bot. Fill out the membership form and activate your account.\n   • Rights: Equal voting rights in AGM, share capital dividends, and access to all credit facilities.\n\n2. SAVINGS PRODUCTS:\n   • Ordinary Shares / Share Capital: Non-withdrawable equity earning annual dividends (up to 10-12% p.a.).\n   • Deposit Shares (FOSA/BOSA): Monthly savings used to determine loan multiplier (borrow up to 3x or 4x your deposit balance).\n   • Holiday & Children Savings: Goal-oriented savings plans earning competitive interest with flexible deposit options.\n\n3. LOAN & CREDIT FACILITIES:\n   • Normal / Development Loan: Interest rate 12% p.a. (reducing balance), up to 3x savings balance, maximum repayment period 36-48 months. Requires 3 SACCO member guarantors.\n   • Emergency Loan: Fast 24-hour approval, interest rate 14% p.a., maximum KSh 100,000, 12-month repayment period.\n   • School Fees Loan: Fast 48-hour processing, interest rate 12% p.a., maximum 12 months repayment. Direct check payable to school/institution.\n   • Asset Financing: Financing for vehicles, land, or business machinery up to 80% valuation.\n\n4. DIVIDENDS & REPAYMENTS:\n   • Annual dividends are declared after AGM audit approval and credited directly to member savings.\n   • Repayments can be made via standing order, salary checkoff, or branch desk.\n\n5. CONTACT & OFFICE LOCATIONS:\n   • Main Office: 22 Area, Addis Ababa, Ethiopia (near Golagul Building, Getfam Hotel Road, around New Bata Complex, Zemen Bank Building).\n   • Contact Phones: +251 991 444 411 / +251 991 444 422 / +251 991 444 488 / +251 991 444 499.\n   • Working Hours: Monday - Friday: 8:30 AM - 5:30 PM | Saturday: 8:30 AM - 12:30 PM.\n\nINSTRUCTIONS:\n- Answer every user question accurately, professionally, and concisely using the information above.\n- If a user asks about loans, savings, dividends, or branches, give structured details.\n- Always be helpful, proactive, and direct.",
   "faq": {
     "faq_join": [
       "How do I become a member?",
-      "Joining Vertex SACCO is simple. Visit any branch with your national ID or passport, a passport photo, and your opening contribution. Our onboarding team will guide you through the registration form, member number setup, and account activation."
+      "Joining <b>Vertex SACCO</b> is simple and fast:\n\n1. Visit any branch or start here on Telegram.\n2. Submit your National ID/Passport copy and 1 passport photo.\n3. Pay the registration fee of <b>KSh 1,000</b> and make your first monthly contribution (min. KSh 500).\n\n<i>Once activated, you gain immediate access to SACCO savings plans and credit facilities!</i>"
     ],
     "faq_loan": [
-      "How long does loan processing take?",
-      "Standard loan applications are reviewed after document verification and guarantor confirmation. Emergency facilities are prioritized, while development loans may take longer depending on appraisal requirements."
+      "How long does loan processing take & what are the limits?",
+      "<b>Loan Processing & Limits Overview:</b>\n\n• <b>Emergency Loans:</b> Approved within <b>24 hours</b> (Up to KSh 100,000 @ 14% p.a.).\n• <b>School Fees Loans:</b> Processed within <b>48 hours</b> (@ 12% p.a.).\n• <b>Normal Development Loans:</b> Reviewed within 3-5 business days. You can borrow up to <b>3x your total savings balance</b> with a repayment period of up to 36-48 months.\n\n<i>All major loans require 3 active member guarantors.</i>"
     ],
     "faq_savings": [
-      "Can I save and borrow at the same time?",
-      "Yes. Members can continue building savings while accessing eligible loan products. A healthy savings history improves your borrowing profile and strengthens your access to higher limits over time."
+      "What savings options & dividends do you offer?",
+      "<b>Vertex SACCO Savings Products:</b>\n\n🟢 <b>Deposit Shares:</b> Withdrawable monthly deposits used to boost your borrowing limit (up to 3x balance).\n🟢 <b>Share Capital:</b> Member equity earning attractive annual dividend payouts (historically 10-12% p.a.).\n🟢 <b>Target & Holiday Savings:</b> Flexible goal-based savings earning compound interest."
+    ],
+    "faq_dividends": [
+      "How are dividends calculated and paid?",
+      "Dividends are declared annually following approval by members at the Annual General Meeting (AGM).\n\nDividends are calculated based on your average share capital held throughout the financial year and credited directly to your account."
+    ],
+    "faq_guarantors": [
+      "What are the rules for loan guarantors?",
+      "Any fully registered member with up-to-date monthly contributions can guarantee a loan.\n\n• A guarantor's unattached deposits must cover the guaranteed loan amount.\n• Guarantors share responsibility for loan recovery in the event of default."
     ],
     "faq_support": [
       "How do I get account help?",
-      "Use the Contact Admin menu for account support, statement help, or document follow-up. Your request will be routed to the support desk for direct assistance."
+      "Use the <b>📞 Support</b> button in the main menu. Write your message or upload an attachment, then tap <b>Send Message</b>. Our support desk will reply to you directly in Telegram!"
     ]
   },
   "branches": {
     "branch_hq": {
-      "name": "Addis Ababa Main Office",
-      "address": "22 Area, Addis Ababa, Ethiopia",
-      "phone": "+251 11 000 0000",
-      "hours": "Mon-Fri 8:30 AM - 5:30 PM, Sat 8:30 AM - 12:30 PM",
+      "name": "Addis Ababa Main Office (HQ)",
+      "address": "22 Area, Addis Ababa, Ethiopia (near Golagul Building, Getfam Hotel Road, Zemen Bank Building)",
+      "phone": "+251 991 444 411",
+      "hours": "Mon-Fri: 8:30 AM - 5:30 PM | Sat: 8:30 AM - 12:30 PM",
       "maps_url": "https://www.google.com/maps/search/?api=1&query=22+Area+Addis+Ababa+Ethiopia",
       "image_url": "assets/hq.jpg",
       "video_url": null
     },
     "branch_westlands": {
       "name": "Member Service Desk",
-      "address": "Addis Ababa, Ethiopia",
-      "phone": "+251 11 000 0001",
-      "hours": "Mon-Fri 8:30 AM - 5:30 PM",
+      "address": "Getfam Hotel Road, Addis Ababa, Ethiopia",
+      "phone": "+251 991 444 422",
+      "hours": "Mon-Fri: 8:30 AM - 5:30 PM",
       "maps_url": "https://www.google.com/maps/search/?api=1&query=Addis+Ababa+Ethiopia",
       "video_url": "BAACAgIAAxkBAAIHxmn156aB4uH1U5uoSBrv4-1e4RicAAJSpQACpQSxS8-0dcsxtFkIOwQ"
     },
     "branch_mombasa": {
-      "name": "Verification Support Office",
-      "address": "22 Area vicinity, Addis Ababa, Ethiopia",
-      "phone": "+251 11 000 0002",
-      "hours": "Mon-Fri 8:30 AM - 5:00 PM",
+      "name": "Verification & Support Office",
+      "address": "New Bata Complex vicinity, 22 Area, Addis Ababa",
+      "phone": "+251 991 444 488",
+      "hours": "Mon-Fri: 8:30 AM - 5:00 PM",
       "maps_url": "https://www.google.com/maps/search/?api=1&query=22+Area+Addis+Ababa",
       "image_url": "assets/hq.jpg"
     }
   },
   "services": {
     "service_savings": [
-      "Savings Services",
-      "Build your financial future through regular deposits, goal-based saving, children's plans, and long-term member wealth programs. Members benefit from disciplined saving, easier access to credit, and stronger dividend potential."
+      "💰 Savings & Investment Services",
+      "Build your financial strength through regular monthly contributions, share capital equity, children's savings, and high-yield wealth plans.\n\n• <b>Deposit Shares:</b> Qualify for loans up to 3x your balance.\n• <b>Share Capital:</b> Earn annual dividends (10-12% p.a.).\n• <b>Goal Savings:</b> Flexible withdrawals with competitive interest."
     ],
     "service_loans": [
-      "Loan Services",
-      "Vertex SACCO offers salary advances, emergency loans, school fees support, development financing, and business growth facilities. Loan options are structured around repayment ability, savings profile, and member standing.\n\nWhat goes into financing:\n• Member eligibility based on savings history and repayment track record\n• Loan amount determined by savings balance and income verification\n• Interest rates starting from competitive SACCO rates\n• Repayment terms from 3-36 months depending on loan type\n• Guarantor requirements for larger loans\n• Document verification including ID, payslips, and business plans\n• Credit scoring based on member standing and financial discipline"
+      "📈 SACCO Loan & Credit Facilities",
+      "Vertex SACCO provides structured credit facilities tailored to your financial goals:\n\n• <b>Normal / Development Loan:</b> Borrow up to 3x savings @ 12% p.a. reducing balance (36-48 months term).\n• <b>Emergency Loan:</b> Fast 24-hr disbursement up to KSh 100,000 @ 14% p.a. (12 months term).\n• <b>School Fees Loan:</b> Approved in 48 hrs @ 12% p.a.\n• <b>Asset Finance:</b> Up to 80% financing for vehicles, land, or equipment."
     ],
     "service_digital": [
-      "Digital Services",
-      "Members can use digital support channels for balance requests, product inquiries, branch guidance, and follow-up on applications. This bot acts as the first support layer for quick assistance."
+      "💻 Digital Portal & Member Support",
+      "Access 24/7 digital support via our official Telegram Assistant.\n\n• Check loan eligibility & savings info.\n• Get instant FAQ answers & branch locations.\n• Send support messages directly to SACCO management."
     ],
     "service_support": [
-      "Member Support",
-      "For account issues, document clarification, application follow-up, or one-on-one assistance, use the Contact Admin section and our support team will respond directly."
+      "🤝 Dedicated Member Support Desk",
+      "Need personalized help with your account, loan appraisal status, or membership registration? Use the <b>📞 Support</b> menu option to send a direct message to our support desk."
     ]
   },
   "ui_texts": {
-    "welcome_registration": "To provide you with secure and personalized financial services, we need to register your profile.",
-    "welcome_home": "Welcome to our official digital portal. Experience the <b>Vertex Green Brand</b> through simplified member services and financial growth.",
-    "ai_assistant_intro": "Ask any question in your own words. The assistant will reply naturally using Vertex SACCO knowledge about membership, savings, loans, office details, and general SACCO guidance.",
-    "admin_dashboard_welcome": "Welcome back, Admin. Use this panel to monitor registrations and access the central database.",
-    "ai_fallback_message": "I am currently optimizing my financial databases. Please rephrase your inquiry in a moment, or reach out to our support desk for immediate assistance."
+    "welcome_registration": "To provide you with secure and personalized financial services, please register your member profile below.",
+    "welcome_home": "Welcome to the official <b>Vertex SACCO Digital Portal</b> 💚. Experience financial empowerment, transparent savings, and dependable member support.",
+    "ai_assistant_intro": "Ask any question about Vertex SACCO in natural language! Our AI consultant provides instant guidance on membership, savings plans, loan products, dividend policies, and branch details.",
+    "admin_dashboard_welcome": "Welcome back, Admin. Control system settings, monitor registered member metrics, and launch member announcements below.",
+    "ai_fallback_message": "I am currently updating my financial database knowledge. Please rephrase your question, or tap <b>📞 Support</b> to speak with our support desk!"
   }
 }

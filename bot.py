@@ -664,7 +664,7 @@ async def groq_chat_completion(messages: list[dict[str, str]]) -> Optional[str]:
             "model": GROQ_MODEL,
             "messages": messages,
             "temperature": 0.3,
-            "max_tokens": 350,
+            "max_tokens": 550,
         }
     ).encode("utf-8")
 
