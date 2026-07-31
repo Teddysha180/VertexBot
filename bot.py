@@ -1172,28 +1172,65 @@ def compute_reducing_balance_schedule(amount: float, annual_rate: float, months:
     }
 
 
+def parse_smart_loan_input(text: str) -> dict[str, Optional[Any]]:
+    result: dict[str, Optional[Any]] = {"amount": None, "rate": None, "months": None}
+    raw = text.lower().replace(",", "")
+
+    # 1. Period (Years or Months)
+    year_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:years?|yrs?|yr)\b", raw)
+    month_match = re.search(r"(\d+)\s*(?:months?|mos?|m)\b", raw)
+    if year_match:
+        result["months"] = int(float(year_match.group(1)) * 12)
+        raw = raw.replace(year_match.group(0), " ")
+    elif month_match:
+        result["months"] = int(month_match.group(1))
+        raw = raw.replace(month_match.group(0), " ")
+
+    # 2. Rate (%)
+    rate_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:%|percent|p\.a\.)\b", raw)
+    if rate_match:
+        result["rate"] = float(rate_match.group(1))
+        raw = raw.replace(rate_match.group(0), " ")
+
+    # 3. Amount (Million / K / Raw Number)
+    million_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:million|m)\b", raw)
+    k_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:k|thousand)\b", raw)
+    if million_match:
+        result["amount"] = float(million_match.group(1)) * 1_000_000.0
+        raw = raw.replace(million_match.group(0), " ")
+    elif k_match:
+        result["amount"] = float(k_match.group(1)) * 1_000.0
+        raw = raw.replace(k_match.group(0), " ")
+
+    tokens = re.findall(r"\b\d+(?:\.\d+)?\b", raw)
+    for tok in tokens:
+        val = float(tok)
+        if result["amount"] is None and val >= 500:
+            result["amount"] = val
+        elif result["rate"] is None and 1.0 <= val <= 50.0:
+            result["rate"] = val
+        elif result["months"] is None and 1 <= val <= 120:
+            result["months"] = int(val)
+
+    return result
+
+
 async def start_loan_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     context.user_data[CALC_DRAFT_KEY] = {}
     context.user_data["state"] = STATE_CALC_AMOUNT
 
     text = (
-        "<b>🧮 Amortized Loan Repayment Calculator</b>\n\n"
+        "<b>🧮 Smart Amortized Loan Calculator</b>\n\n"
         "Calculate your monthly repayments using the <b>Reducing Balance Amortization Method</b>.\n\n"
-        "Please select or type your desired <b>Loan Amount</b> (in Ethiopian Birr - ETB):"
+        "You can type your loan details in <b>one single message</b> or step-by-step!\n\n"
+        "💡 <b>Examples you can type directly:</b>\n"
+        "• <code>100,000 ETB 12% 24 months</code>\n"
+        "• <code>500k at 14% for 3 years</code>\n"
+        "• <code>1 million 12% 36 mos</code>\n\n"
+        "<i>Or enter your <b>Loan Amount</b> (in ETB) to start step-by-step:</i>"
     )
     keyboard = InlineKeyboardMarkup([
-        [
-            InlineKeyboardButton("50,000 ETB", callback_data="calc_amt_50000"),
-            InlineKeyboardButton("100,000 ETB", callback_data="calc_amt_100000"),
-        ],
-        [
-            InlineKeyboardButton("250,000 ETB", callback_data="calc_amt_250000"),
-            InlineKeyboardButton("500,000 ETB", callback_data="calc_amt_500000"),
-        ],
-        [
-            InlineKeyboardButton("1,000,000 ETB", callback_data="calc_amt_1000000"),
-            InlineKeyboardButton("2,000,000 ETB", callback_data="calc_amt_2000000"),
-        ],
+        [InlineKeyboardButton("💡 Try Sample: 100k @ 12% for 24 Mos", callback_data="calc_sample_100k")],
         [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")]
     ])
     await send_or_edit(update, text, keyboard)
@@ -1631,9 +1668,9 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data == "calc_start":
         await start_loan_calculator(update, context)
         return
-    if data.startswith("calc_amt_"):
-        amt_str = data.split("_")[-1]
-        await prompt_calc_rate(update, context, float(amt_str))
+    if data == "calc_sample_100k":
+        context.user_data[CALC_DRAFT_KEY] = {"amount": 100000.0, "rate": 12.0}
+        await show_calc_summary(update, context, 24)
         return
     if data.startswith("calc_rate_"):
         rate_str = data.split("_")[-1]
@@ -1934,41 +1971,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.user_data["state"] = None
         return
 
-    # --- Loan Calculator Custom Text Input State Handling ---
-    if state == STATE_CALC_AMOUNT:
-        try:
-            clean_val = text.replace(",", "").replace("ETB", "").replace("birr", "").replace("etb", "").strip()
-            val = float(clean_val)
-            if val <= 0:
-                raise ValueError()
-            await prompt_calc_rate(update, context, val)
-            return
-        except ValueError:
-            await message.reply_text("Please enter a valid positive loan amount in ETB (e.g. 100000 or 250,000 ETB).")
+    # --- Smart Loan Calculator Input Interceptor ---
+    if state in [STATE_CALC_AMOUNT, STATE_CALC_RATE, STATE_CALC_PERIOD]:
+        draft = context.user_data.get(CALC_DRAFT_KEY, {})
+        parsed = parse_smart_loan_input(text)
+
+        if parsed["amount"] is not None:
+            draft["amount"] = parsed["amount"]
+        if parsed["rate"] is not None:
+            draft["rate"] = parsed["rate"]
+        if parsed["months"] is not None:
+            draft["months"] = parsed["months"]
+
+        context.user_data[CALC_DRAFT_KEY] = draft
+
+        # Check if all 3 parameters are ready
+        amount = draft.get("amount")
+        rate = draft.get("rate")
+        months = draft.get("months")
+
+        if amount is not None and rate is not None and months is not None:
+            await show_calc_summary(update, context, months)
             return
 
-    if state == STATE_CALC_RATE:
-        try:
-            clean_val = text.replace("%", "").replace("p.a.", "").strip()
-            val = float(clean_val)
-            if val <= 0 or val > 100:
-                raise ValueError()
-            await prompt_calc_period(update, context, val)
-            return
-        except ValueError:
-            await message.reply_text("Please enter a valid annual interest rate percentage (e.g. 12 or 14.5).")
+        if amount is None:
+            await message.reply_text("Please type a valid loan amount in ETB (e.g. 100,000 or 500k ETB).")
             return
 
-    if state == STATE_CALC_PERIOD:
-        try:
-            clean_val = text.replace("months", "").replace("month", "").replace("mos", "").strip()
-            val = int(clean_val)
-            if val <= 0 or val > 120:
-                raise ValueError()
-            await show_calc_summary(update, context, val)
+        if rate is None:
+            await prompt_calc_rate(update, context, amount)
             return
-        except ValueError:
-            await message.reply_text("Please enter a valid number of repayment months (e.g. 12, 24, 36, or 48).")
+
+        if months is None:
+            await prompt_calc_period(update, context, rate)
             return
 
     # --- Guard: Prevent use if not registered ---
