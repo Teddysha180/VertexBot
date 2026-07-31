@@ -748,21 +748,29 @@ async def groq_chat_completion(messages: list[dict[str, str]]) -> Optional[str]:
 
 
 async def generate_ai_reply(context: ContextTypes.DEFAULT_TYPE, user_text: str) -> str:
-    memory = list(get_chat_memory(context))
-    system_prompt = CONTENT.get("system_prompt")
-    if not system_prompt:
-        system_prompt = "You are the Vertex Financial Persona, a confident and professional financial consultant for Vertex SACCO."
-        logger.warning("system_prompt missing from content.json, using default.")
+    try:
+        memory = list(get_chat_memory(context))
+        system_prompt = CONTENT.get("system_prompt")
+        if not system_prompt:
+            system_prompt = "You are the Vertex Financial Persona, a confident and professional financial consultant for Vertex SACCO."
+            logger.warning("system_prompt missing from content.json, using default.")
 
-    messages = [{"role": "system", "content": system_prompt}]
-    for item in memory[-20:]:
-        role = "assistant" if item["role"] == "assistant" else "user"
-        messages.append({"role": role, "content": item["text"]})
-    messages.append({"role": "user", "content": user_text})
+        messages = [{"role": "system", "content": system_prompt}]
+        for item in memory[-20:]:
+            if isinstance(item, dict) and "role" in item and "text" in item:
+                role = "assistant" if item["role"] == "assistant" else "user"
+                messages.append({"role": role, "content": str(item["text"])})
+            elif isinstance(item, str) and item.strip():
+                messages.append({"role": "user", "content": item})
 
-    ai_text = await groq_chat_completion(messages)
-    if ai_text:
-        return ai_text
+        messages.append({"role": "user", "content": user_text})
+
+        ai_text = await groq_chat_completion(messages)
+        if ai_text:
+            return ai_text
+    except Exception as exc:
+        logger.error("Error in generate_ai_reply: %s", exc)
+        context.user_data.pop(CHAT_MEMORY_KEY, None)
 
     # Fallback/local AI
     return build_ai_answer(user_text)
@@ -2092,23 +2100,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         ai_answer = clean_ai_formatting(raw_ai_answer)
         remember_message(context, "assistant", ai_answer)
         try:
-            await safe_telegram_call(
-                lambda: message.reply_text(
-                    ai_answer,
-                    parse_mode=ParseMode.HTML,
-                    disable_web_page_preview=True,
-                ),
-                "sending AI reply HTML",
+            await message.reply_text(
+                ai_answer,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
             )
         except Exception as html_err:
             logger.warning("Telegram HTML parse failed for AI answer (%s). Falling back to plain text.", html_err)
-            await safe_telegram_call(
-                lambda: message.reply_text(
+            try:
+                await message.reply_text(
                     ai_answer,
                     disable_web_page_preview=True,
-                ),
-                "sending fallback plain text AI reply",
-            )
+                )
+            except Exception as send_err:
+                logger.error("Failed to send AI response: %s", send_err)
+                await message.reply_text("Hello! Welcome to Vertex SACCO. How can I assist you with our services today?")
         return
 
     remember_message(context, "user", summarize_message(message))
