@@ -1307,9 +1307,6 @@ async def show_calc_summary(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     context.user_data[CALC_DRAFT_KEY] = draft
     context.user_data["state"] = None
 
-    avg_payment = result['total_repayment'] / result['months'] if result['months'] > 0 else 0
-    cost_of_borrowing = ((result['total_interest'] / result['amount']) * 100) if result['amount'] > 0 else 0
-
     summary_text = (
         "<b>✅ Loan Calculation Complete!</b>\n\n"
         "<b>📋 Loan Details:</b>\n"
@@ -1319,8 +1316,7 @@ async def show_calc_summary(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         "<b>💵 Payment Breakdown:</b>\n"
         f"  📅 Monthly Payment: <code>{result['pmt']:,.2f} ETB</code>\n"
         f"  📈 Total Interest: <code>{result['total_interest']:,.2f} ETB</code>\n"
-        f"  💳 Total Repayment: <code>{result['total_repayment']:,.2f} ETB</code>\n"
-        f"  📊 Cost of Borrowing: <code>{cost_of_borrowing:.1f}%</code>\n\n"
+        f"  💳 Total Repayment: <code>{result['total_repayment']:,.2f} ETB</code>\n\n"
         "<i>✓ Calculated using Reducing Balance Amortization Method (accurate & certified)</i>"
     )
 
