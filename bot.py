@@ -15,6 +15,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import logging
 import os
+import re
 import threading
 from typing import Any, Optional
 from urllib import error, request
@@ -2129,27 +2130,35 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     if message.text:
-        remember_message(context, "user", text)
-        await show_typing(update, context)
-        raw_ai_answer = await generate_ai_reply(context, text)
-        ai_answer = clean_ai_formatting(raw_ai_answer)
-        remember_message(context, "assistant", ai_answer)
         try:
-            await message.reply_text(
-                ai_answer,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=True,
-            )
-        except Exception as html_err:
-            logger.warning("Telegram HTML parse failed for AI answer (%s). Falling back to plain text.", html_err)
+            remember_message(context, "user", text)
+            await show_typing(update, context)
+            raw_ai_answer = await generate_ai_reply(context, text)
+            if not raw_ai_answer or not str(raw_ai_answer).strip():
+                raw_ai_answer = build_ai_answer(text)
+            
+            ai_answer = clean_ai_formatting(raw_ai_answer or "Hello! Welcome to Vertex SACCO. How can I assist you with our services today?")
+            remember_message(context, "assistant", ai_answer)
+
             try:
                 await message.reply_text(
                     ai_answer,
+                    parse_mode=ParseMode.HTML,
                     disable_web_page_preview=True,
                 )
-            except Exception as send_err:
-                logger.error("Failed to send AI response: %s", send_err)
-                await message.reply_text("Hello! Welcome to Vertex SACCO. How can I assist you with our services today?")
+            except Exception as html_err:
+                logger.warning("Telegram HTML parse failed for AI answer (%s). Falling back to plain text.", html_err)
+                plain_answer = re.sub(r"<[^>]+>", "", ai_answer).strip() or "Hello! Welcome to Vertex SACCO. How can I assist you today?"
+                await message.reply_text(
+                    plain_answer,
+                    disable_web_page_preview=True,
+                )
+        except Exception as exc:
+            logger.error("Unhandled error in AI message handler: %s", exc, exc_info=True)
+            await message.reply_text(
+                "Hello! Welcome to Vertex SACCO. I am here to help you with loans, savings, dividends, and member services. How can I assist you today?",
+                reply_markup=home_keyboard(user.id if user else None),
+            )
         return
 
     remember_message(context, "user", summarize_message(message))
@@ -2168,12 +2177,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.exception("Unhandled error: %s", context.error)
+    logger.error("Unhandled bot exception: %s", context.error, exc_info=context.error)
     if isinstance(update, Update) and update.effective_message:
-        await safe_telegram_call(
-            lambda: update.effective_message.reply_text("An unexpected error occurred. Please try again."),
-            "sending error notification",
-        )
+        try:
+            user_id = update.effective_user.id if update.effective_user else None
+            await update.effective_message.reply_text(
+                "Hello! How can I assist you with Vertex SACCO today? Tap any option below or type your question.",
+                reply_markup=home_keyboard(user_id)
+            )
+        except Exception as err:
+            logger.error("Failed to send error recovery message: %s", err)
 
 
 async def post_init(application: Application) -> None:
