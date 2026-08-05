@@ -108,6 +108,7 @@ STATE_CALC_AMOUNT = "calc_amount"
 STATE_CALC_RATE = "calc_rate"
 STATE_CALC_PERIOD_UNIT = "calc_period_unit"
 STATE_CALC_PERIOD_VALUE = "calc_period_value"
+STATE_CALC_PERIOD = "calc_period_legacy"
 
 SUPPORT_DRAFT_KEY = "support_draft"
 BROADCAST_DRAFT_KEY = "broadcast_draft"
@@ -1407,18 +1408,47 @@ async def prompt_calc_period(update: Update, context: ContextTypes.DEFAULT_TYPE,
     draft["rate"] = rate
     amount = draft.get("amount", 100000.0)
     context.user_data[CALC_DRAFT_KEY] = draft
-    context.user_data["state"] = STATE_CALC_PERIOD
+    context.user_data["state"] = STATE_CALC_PERIOD_UNIT
 
     text = (
         "<b>🧮 Vertex SACCO Loan Calculator</b>\n\n"
         "📝 <b>Step 3 of 3: Loan Period</b>\n\n"
         f"✅ Loan Amount: <b>{amount:,.2f} ETB</b>\n"
         f"✅ Interest Rate: <b>{rate:.2f}% p.a.</b>\n\n"
-        "Please enter the loan period in months:\n\n"
+        "Please choose the loan period unit first:\n\n"
+        "💡 <b>Months</b> for a direct month count like <code>24</code>.\n"
+        "💡 <b>Years</b> if you want to enter <code>2</code> and have it treated as 2 years.\n\n"
+        "<b>Tap one option below to continue.</b>"
+    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Months", callback_data="calc_period_unit_months"), InlineKeyboardButton("📆 Years", callback_data="calc_period_unit_years")],
+        [InlineKeyboardButton("🔄 Back", callback_data="calc_start"), InlineKeyboardButton("❌ Cancel", callback_data="nav_home")]
+    ])
+    await send_or_edit(update, text, keyboard)
+
+
+async def prompt_calc_period_value(update: Update, context: ContextTypes.DEFAULT_TYPE, unit: str) -> None:
+    draft = context.user_data.get(CALC_DRAFT_KEY, {})
+    amount = draft.get("amount", 100000.0)
+    rate = draft.get("rate", 12.0)
+    draft["period_unit"] = unit
+    context.user_data[CALC_DRAFT_KEY] = draft
+    context.user_data["state"] = STATE_CALC_PERIOD_VALUE
+
+    unit_label = "years" if unit == "years" else "months"
+    examples = ("1", "2", "3") if unit == "years" else ("6", "24", "36")
+
+    text = (
+        "<b>🧮 Vertex SACCO Loan Calculator</b>\n\n"
+        "📝 <b>Step 3 of 3: Loan Period</b>\n\n"
+        f"✅ Loan Amount: <b>{amount:,.2f} ETB</b>\n"
+        f"✅ Interest Rate: <b>{rate:.2f}% p.a.</b>\n"
+        f"✅ Period Unit: <b>{unit_label.title()}</b>\n\n"
+        f"Please enter the loan period number in <b>{unit_label}</b>:\n\n"
         "💡 <b>Examples:</b>\n"
-        "• <code>6</code> (for 6 months)\n"
-        "• <code>24</code> (for 24 months / 2 years)\n"
-        "• <code>36</code> (for 36 months / 3 years)\n\n"
+        f"• <code>{examples[0]}</code>\n"
+        f"• <code>{examples[1]}</code>\n"
+        f"• <code>{examples[2]}</code>\n\n"
         "<b>Just type the number and send!</b>"
     )
     keyboard = InlineKeyboardMarkup([
@@ -1432,6 +1462,8 @@ async def show_calc_summary(update: Update, context: ContextTypes.DEFAULT_TYPE, 
     draft["months"] = months
     amount = draft.get("amount", 100000.0)
     rate = draft.get("rate", 12.0)
+    period_value = draft.get("period_value", months)
+    period_unit = draft.get("period_unit", "months")
 
     result = compute_reducing_balance_schedule(amount, rate, months)
     
@@ -1448,7 +1480,7 @@ async def show_calc_summary(update: Update, context: ContextTypes.DEFAULT_TYPE, 
         "<b>📋 Loan Details:</b>\n"
         f"  💰 Amount: <code>{result['amount']:,.2f} ETB</code>\n"
         f"  📊 Rate: <code>{result['rate']:.2f}% p.a.</code>\n"
-        f"  ⏱ Period: <code>{result['months']} months</code>\n\n"
+        f"  ⏱ Period: <code>{period_value} {period_unit}</code> (<code>{result['months']} months</code>)\n\n"
         "<b>💵 Payment Breakdown:</b>\n"
         f"  📅 Monthly Payment: <code>{result['pmt']:,.2f} ETB</code>\n"
         f"  📈 Total Interest: <code>{result['total_interest']:,.2f} ETB</code>\n"
@@ -1818,6 +1850,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     if data == "calc_start":
         await start_loan_calculator(update, context)
         return
+    if data == "calc_period_unit_months":
+        await prompt_calc_period_value(update, context, "months")
+        return
+    if data == "calc_period_unit_years":
+        await prompt_calc_period_value(update, context, "years")
+        return
     if data == "calc_sample_100k":
         context.user_data[CALC_DRAFT_KEY] = {"amount": 100000.0, "rate": 12.0}
         await show_calc_summary(update, context, 24)
@@ -2185,7 +2223,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         return
 
     # --- Smart Loan Calculator Input Interceptor ---
-    if state in [STATE_CALC_AMOUNT, STATE_CALC_RATE, STATE_CALC_PERIOD]:
+    if state in [STATE_CALC_AMOUNT, STATE_CALC_RATE, STATE_CALC_PERIOD_UNIT, STATE_CALC_PERIOD_VALUE, STATE_CALC_PERIOD]:
         draft = context.user_data.get(CALC_DRAFT_KEY, {})
         
         # Parse smart input
@@ -2218,6 +2256,39 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
                 await prompt_calc_period(update, context, rate)
             else:
                 await message.reply_text("❌ Invalid rate. Please enter a number between 0.5 and 50 (e.g., <code>12</code> for 12% p.a.).", parse_mode=ParseMode.HTML)
+            return
+
+        if state == STATE_CALC_PERIOD_UNIT:
+            normalized = text.lower().strip()
+            if normalized in {"months", "month", "m"}:
+                await prompt_calc_period_value(update, context, "months")
+            elif normalized in {"years", "year", "y"}:
+                await prompt_calc_period_value(update, context, "years")
+            else:
+                await message.reply_text("❌ Please tap one of the options below: Months or Years.")
+            return
+
+        if state == STATE_CALC_PERIOD_VALUE:
+            period_unit = draft.get("period_unit", "months")
+            months = parse_period_value(text, period_unit)
+            if months is not None:
+                if months < 1 or months > 120:
+                    limit = "10 years" if period_unit == "years" else "120 months"
+                    await message.reply_text(
+                        f"❌ Loan period must be between 1 and {limit}. Please try again.",
+                        parse_mode=ParseMode.HTML,
+                    )
+                    return
+                draft["period_value"] = months // 12 if period_unit == "years" else months
+                draft["months"] = months
+                context.user_data[CALC_DRAFT_KEY] = draft
+                await show_calc_summary(update, context, months)
+            else:
+                example = "2" if period_unit == "years" else "24"
+                await message.reply_text(
+                    f"❌ Invalid period. Please enter a number in <b>{period_unit}</b> (e.g., <code>{example}</code>).",
+                    parse_mode=ParseMode.HTML,
+                )
             return
 
         # Handle STATE_CALC_PERIOD
