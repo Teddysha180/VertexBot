@@ -2811,8 +2811,8 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 async def post_init(application: Application) -> None:
     logger.info("Vertex SACCO Bot started successfully.")
     await process_due_scheduled_posts(application)
-    if not getattr(application, "_scheduled_posts_loop_started", False):
-        application._scheduled_posts_loop_started = True
+    if not application.bot_data.get("scheduled_posts_loop_started"):
+        application.bot_data["scheduled_posts_loop_started"] = True
         asyncio.create_task(scheduled_posts_loop(application))
     if ADMIN_ID:
         try:
