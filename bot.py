@@ -19,7 +19,7 @@ import re
 import threading
 from typing import Any, Optional
 from urllib import error, request
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
 import gspread
@@ -102,12 +102,16 @@ STATE_GET_FILE_ID = "get_file_id"
 STATE_BROADCAST_MEDIA = "broadcast_media"
 STATE_BROADCAST_BUTTONS = "broadcast_buttons"
 STATE_BROADCAST_CONFIRM = "broadcast_confirm"
+STATE_SCHEDULE_MEDIA = "schedule_media"
+STATE_SCHEDULE_TIME = "schedule_time"
 STATE_CALC_AMOUNT = "calc_amount"
 STATE_CALC_RATE = "calc_rate"
-STATE_CALC_PERIOD = "calc_period"
+STATE_CALC_PERIOD_UNIT = "calc_period_unit"
+STATE_CALC_PERIOD_VALUE = "calc_period_value"
 
 SUPPORT_DRAFT_KEY = "support_draft"
 BROADCAST_DRAFT_KEY = "broadcast_draft"
+SCHEDULE_DRAFT_KEY = "schedule_draft"
 CALC_DRAFT_KEY = "calc_draft"
 IS_REGISTERED_KEY = "is_registered"
 REG_DATA_NAME = "reg_data_name"
@@ -240,6 +244,7 @@ def admin_dashboard_inline() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
             [InlineKeyboardButton("📢 Broadcast Announcement", callback_data="admin_broadcast")],
+            [InlineKeyboardButton("🗓 Schedule Post", callback_data="admin_schedule_post")],
             [InlineKeyboardButton("📊 System & Member Stats", callback_data="admin_stats")],
             [InlineKeyboardButton("🔄 Sync Member Registry", callback_data="admin_sync")],
             [InlineKeyboardButton("🆔 Get Telegram File ID", callback_data="admin_get_file_id")],
@@ -1002,6 +1007,53 @@ async def start_broadcast_wizard(update: Update, context: ContextTypes.DEFAULT_T
     await send_or_edit(update, instructions, None)
 
 
+async def start_schedule_post_wizard(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    if not user or str(user.id) != ADMIN_ID:
+        if update.effective_message:
+            await update.effective_message.reply_text("⛔ Admin access only.")
+        return
+
+    context.user_data["state"] = STATE_SCHEDULE_MEDIA
+    context.user_data[SCHEDULE_DRAFT_KEY] = {}
+
+    instructions = (
+        "🗓 <b>Schedule a Post</b>\n\n"
+        "Send the announcement content now, and I will ask when to publish it.\n\n"
+        "<i>Once saved, the post will be delivered to all registered members at the selected time.</i>"
+    )
+    await send_or_edit(update, instructions, None)
+
+
+def parse_schedule_datetime(user_input: str) -> Optional[datetime]:
+    normalized = user_input.strip().lower().replace("\u2013", "-")
+    now = datetime.now()
+
+    relative_match = re.match(r"^in\s+(\d+)\s*(minutes?|mins?|hours?|hrs?|days?)$", normalized)
+    if relative_match:
+        value = int(relative_match.group(1))
+        unit = relative_match.group(2)
+        if unit.startswith("minute") or unit.startswith("min"):
+            return now + timedelta(minutes=value)
+        if unit.startswith("hour") or unit.startswith("hr"):
+            return now + timedelta(hours=value)
+        if unit.startswith("day"):
+            return now + timedelta(days=value)
+
+    for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%d-%m-%Y %H:%M", "%d/%m/%Y %H:%M"]:
+        try:
+            parsed = datetime.strptime(user_input.strip(), fmt)
+            return parsed
+        except ValueError:
+            continue
+
+    return None
+
+
+def format_schedule_datetime(dt: datetime) -> str:
+    return dt.strftime("%Y-%m-%d %H:%M")
+
+
 async def show_broadcast_preview(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     draft = context.user_data.get(BROADCAST_DRAFT_KEY, {})
     if not draft:
@@ -1120,6 +1172,70 @@ async def execute_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     )
 
 
+async def execute_scheduled_broadcast(bot, draft: dict[str, Any]) -> None:
+    publish_at = draft.get("publish_at")
+    if not publish_at:
+        return
+
+    try:
+        target_time = datetime.fromisoformat(publish_at)
+    except ValueError:
+        return
+
+    wait_seconds = max((target_time - datetime.now()).total_seconds(), 0)
+    if wait_seconds > 0:
+        await asyncio.sleep(wait_seconds)
+
+    await sync_registered_users_from_sheets()
+    user_ids = list(REGISTERED_USERS_CACHE.keys())
+    if ADMIN_ID and ADMIN_ID not in user_ids:
+        user_ids.append(ADMIN_ID)
+
+    if not user_ids:
+        return
+
+    success_count = 0
+    fail_count = 0
+
+    for uid_str in user_ids:
+        try:
+            target_id = int(uid_str)
+            copied = await safe_telegram_call(
+                lambda: bot.copy_message(
+                    chat_id=target_id,
+                    from_chat_id=draft["chat_id"],
+                    message_id=draft["message_id"],
+                    reply_markup=draft.get("markup")
+                ),
+                f"scheduled broadcast to {target_id}"
+            )
+            if copied:
+                success_count += 1
+            else:
+                fail_count += 1
+        except Exception as err:
+            logger.warning("Scheduled broadcast failed for user %s: %s", uid_str, err)
+            fail_count += 1
+        await asyncio.sleep(0.05)
+
+    summary_text = (
+        "<b>🗓 Scheduled Post Delivered</b>\n\n"
+        f"👥 <b>Total Target Members:</b> {len(user_ids)}\n"
+        f"✅ <b>Delivered:</b> {success_count}\n"
+        f"❌ <b>Failed / Blocked:</b> {fail_count}"
+    )
+
+    if ADMIN_ID:
+        await safe_telegram_call(
+            lambda: bot.send_message(
+                chat_id=int(ADMIN_ID),
+                text=summary_text,
+                parse_mode=ParseMode.HTML,
+            ),
+            "sending scheduled broadcast summary to admin"
+        )
+
+
 async def calculator_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await is_user_registered(update, context):
         return
@@ -1221,6 +1337,26 @@ def parse_smart_loan_input(text: str) -> dict[str, Optional[Any]]:
             result["months"] = int(val)
 
     return result
+
+
+def parse_period_value(text: str, unit: str) -> Optional[int]:
+    raw = text.lower().replace(",", "").strip()
+
+    year_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:years?|yrs?|yr)\b", raw)
+    month_match = re.search(r"(\d+(?:\.\d+)?)\s*(?:months?|mos?|m)\b", raw)
+    if year_match:
+        return max(1, int(float(year_match.group(1)) * 12))
+    if month_match:
+        return max(1, int(float(month_match.group(1))))
+
+    number_match = re.search(r"\b\d+(?:\.\d+)?\b", raw)
+    if not number_match:
+        return None
+
+    value = float(number_match.group(0))
+    if unit == "years":
+        return max(1, int(value * 12))
+    return max(1, int(value))
 
 
 async def start_loan_calculator(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1658,6 +1794,12 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         await start_broadcast_wizard(update, context)
         return
+    if data == "admin_schedule_post":
+        if str(query.from_user.id) != ADMIN_ID:
+            await query.answer("⛔ Admin only.", show_alert=True)
+            return
+        await start_schedule_post_wizard(update, context)
+        return
     if data == "broadcast_no_buttons":
         if str(query.from_user.id) != ADMIN_ID:
             await query.answer("⛔ Admin only.", show_alert=True)
@@ -1944,6 +2086,69 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         context.user_data["state"] = STATE_BROADCAST_CONFIRM
 
         await show_broadcast_preview(update, context)
+        return
+
+    if state == STATE_SCHEDULE_MEDIA:
+        if str(user.id) != ADMIN_ID:
+            context.user_data["state"] = None
+            return
+
+        draft = {
+            "chat_id": message.chat_id,
+            "message_id": message.message_id,
+            "summary": summarize_message(message),
+        }
+        context.user_data[SCHEDULE_DRAFT_KEY] = draft
+        context.user_data["state"] = STATE_SCHEDULE_TIME
+
+        await safe_telegram_call(
+            lambda: message.reply_text(
+                "✅ Post content saved! Now enter the publish time.\n\n"
+                "Examples:\n"
+                "<code>2025-12-31 14:30</code>\n"
+                "<code>31-12-2025 14:30</code>\n"
+                "<code>in 2 hours</code>",
+                parse_mode=ParseMode.HTML,
+            ),
+            "asking for scheduled publish time"
+        )
+        return
+
+    if state == STATE_SCHEDULE_TIME:
+        if str(user.id) != ADMIN_ID:
+            context.user_data["state"] = None
+            return
+
+        schedule_time = parse_schedule_datetime(text)
+        if not schedule_time:
+            await message.reply_text(
+                "❌ I could not understand that time. Please use one of these formats:\n"
+                "• <code>YYYY-MM-DD HH:MM</code>\n"
+                "• <code>DD-MM-YYYY HH:MM</code>\n"
+                "• <code>in 2 hours</code>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        if schedule_time <= datetime.now():
+            await message.reply_text("❌ The scheduled time must be in the future. Please enter a later datetime.")
+            return
+
+        draft = context.user_data.get(SCHEDULE_DRAFT_KEY, {})
+        draft["publish_at"] = schedule_time.isoformat()
+        context.user_data[SCHEDULE_DRAFT_KEY] = draft
+        context.user_data["state"] = None
+
+        await message.reply_text(
+            f"✅ Post scheduled for <b>{format_schedule_datetime(schedule_time)}</b>."
+            " I will publish it to all registered members at that time.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=admin_dashboard_inline(),
+        )
+
+        if draft:
+            SCHEDULED_POSTS.append(draft)
+            asyncio.create_task(execute_scheduled_broadcast(context.bot, draft))
         return
 
     # --- Admin File ID Tool Handling ---
