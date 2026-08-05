@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import threading
+import uuid
 from typing import Any, Optional
 from urllib import error, request
 from datetime import datetime, timedelta
@@ -103,6 +104,7 @@ STATE_BROADCAST_MEDIA = "broadcast_media"
 STATE_BROADCAST_BUTTONS = "broadcast_buttons"
 STATE_BROADCAST_CONFIRM = "broadcast_confirm"
 STATE_SCHEDULE_MEDIA = "schedule_media"
+STATE_SCHEDULE_BUTTONS = "schedule_buttons"
 STATE_SCHEDULE_TIME = "schedule_time"
 STATE_CALC_AMOUNT = "calc_amount"
 STATE_CALC_RATE = "calc_rate"
@@ -113,6 +115,8 @@ STATE_CALC_PERIOD = "calc_period_legacy"
 SUPPORT_DRAFT_KEY = "support_draft"
 BROADCAST_DRAFT_KEY = "broadcast_draft"
 SCHEDULE_DRAFT_KEY = "schedule_draft"
+SCHEDULED_POSTS_FILE = "scheduled_posts.json"
+SCHEDULED_POSTS_CACHE: list[dict[str, Any]] = []
 CALC_DRAFT_KEY = "calc_draft"
 IS_REGISTERED_KEY = "is_registered"
 REG_DATA_NAME = "reg_data_name"
@@ -164,6 +168,61 @@ def save_registered_user_cache(user_id: int | str, name: str = "", phone: str = 
             json.dump(REGISTERED_USERS_CACHE, f, indent=2)
     except Exception as e:
         logger.error("Failed to save registered_users.json: %s", e)
+
+
+def _scheduled_posts_path() -> str:
+    base_path = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base_path, SCHEDULED_POSTS_FILE)
+
+
+def load_scheduled_posts_cache() -> list[dict[str, Any]]:
+    global SCHEDULED_POSTS_CACHE
+    abs_path = _scheduled_posts_path()
+    if os.path.exists(abs_path):
+        try:
+            with open(abs_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, list):
+                    SCHEDULED_POSTS_CACHE = [item for item in data if isinstance(item, dict)]
+                else:
+                    SCHEDULED_POSTS_CACHE = []
+                SCHEDULED_POSTS_CACHE.sort(key=lambda item: item.get("publish_at", ""))
+                logger.info("Loaded %d scheduled posts into local cache.", len(SCHEDULED_POSTS_CACHE))
+        except Exception as e:
+            logger.error("Failed to load scheduled_posts.json: %s", e)
+            SCHEDULED_POSTS_CACHE = []
+    return SCHEDULED_POSTS_CACHE
+
+
+def save_scheduled_posts_cache() -> None:
+    abs_path = _scheduled_posts_path()
+    try:
+        with open(abs_path, "w", encoding="utf-8") as f:
+            json.dump(SCHEDULED_POSTS_CACHE, f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        logger.error("Failed to save scheduled_posts.json: %s", e)
+
+
+def add_scheduled_post(post: dict[str, Any]) -> None:
+    SCHEDULED_POSTS_CACHE.append(post)
+    SCHEDULED_POSTS_CACHE.sort(key=lambda item: item.get("publish_at", ""))
+    save_scheduled_posts_cache()
+
+
+def remove_scheduled_post(post_id: str) -> bool:
+    original_len = len(SCHEDULED_POSTS_CACHE)
+    SCHEDULED_POSTS_CACHE[:] = [item for item in SCHEDULED_POSTS_CACHE if item.get("id") != post_id]
+    if len(SCHEDULED_POSTS_CACHE) != original_len:
+        save_scheduled_posts_cache()
+        return True
+    return False
+
+
+def get_scheduled_post(post_id: str) -> Optional[dict[str, Any]]:
+    for item in SCHEDULED_POSTS_CACHE:
+        if item.get("id") == post_id:
+            return item
+    return None
 
 
 def home_keyboard(user_id: Optional[int] = None) -> ReplyKeyboardMarkup:
@@ -246,6 +305,7 @@ def admin_dashboard_inline() -> InlineKeyboardMarkup:
         [
             [InlineKeyboardButton("📢 Broadcast Announcement", callback_data="admin_broadcast")],
             [InlineKeyboardButton("🗓 Schedule Post", callback_data="admin_schedule_post")],
+            [InlineKeyboardButton("🗂 Scheduled Posts", callback_data="admin_scheduled_posts")],
             [InlineKeyboardButton("📊 System & Member Stats", callback_data="admin_stats")],
             [InlineKeyboardButton("🔄 Sync Member Registry", callback_data="admin_sync")],
             [InlineKeyboardButton("🆔 Get Telegram File ID", callback_data="admin_get_file_id")],
@@ -1027,7 +1087,8 @@ async def start_schedule_post_wizard(update: Update, context: ContextTypes.DEFAU
 
 
 def parse_schedule_datetime(user_input: str) -> Optional[datetime]:
-    normalized = user_input.strip().lower().replace("\u2013", "-")
+    normalized = re.sub(r"\s+", " ", user_input.strip().lower().replace("\u2013", "-"))
+    normalized = normalized.removeprefix("on ")
     now = datetime.now()
 
     relative_match = re.match(r"^in\s+(\d+)\s*(minutes?|mins?|hours?|hrs?|days?)$", normalized)
@@ -1041,6 +1102,33 @@ def parse_schedule_datetime(user_input: str) -> Optional[datetime]:
         if unit.startswith("day"):
             return now + timedelta(days=value)
 
+    weekday_map = {
+        "mon": 0, "monday": 0,
+        "tue": 1, "tues": 1, "tuesday": 1,
+        "wed": 2, "wednesday": 2,
+        "thu": 3, "thur": 3, "thurs": 3, "thursday": 3,
+        "fri": 4, "friday": 4,
+        "sat": 5, "saturday": 5,
+        "sun": 6, "sunday": 6,
+    }
+    weekday_match = re.match(
+        r"^(mon|monday|tue|tues|tuesday|wed|wednesday|thu|thur|thurs|thursday|fri|friday|sat|saturday|sun|sunday)"
+        r"(?:\s+(?:at\s+)?)?(\d{1,2}):(\d{2})(?::(\d{2}))?$",
+        normalized,
+    )
+    if weekday_match:
+        weekday_key = weekday_match.group(1)
+        hour = int(weekday_match.group(2))
+        minute = int(weekday_match.group(3))
+        second = int(weekday_match.group(4) or 0)
+        target_weekday = weekday_map.get(weekday_key)
+        if target_weekday is not None:
+            days_ahead = (target_weekday - now.weekday()) % 7
+            candidate = now.replace(hour=hour, minute=minute, second=second, microsecond=0) + timedelta(days=days_ahead)
+            if candidate <= now:
+                candidate += timedelta(days=7)
+            return candidate
+
     for fmt in ["%Y-%m-%d %H:%M", "%Y-%m-%d %H:%M:%S", "%d-%m-%Y %H:%M", "%d/%m/%Y %H:%M"]:
         try:
             parsed = datetime.strptime(user_input.strip(), fmt)
@@ -1053,6 +1141,183 @@ def parse_schedule_datetime(user_input: str) -> Optional[datetime]:
 
 def format_schedule_datetime(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%d %H:%M")
+
+
+async def prompt_schedule_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    draft = context.user_data.get(SCHEDULE_DRAFT_KEY, {})
+    if not draft:
+        await send_or_edit(update, "❌ Schedule draft lost. Please start again.", admin_dashboard_inline())
+        return
+
+    context.user_data["state"] = STATE_SCHEDULE_BUTTONS
+    text = (
+        "✅ <b>Schedule content saved</b>\n\n"
+        "Now add inline button options if you want.\n\n"
+        "<b>Format:</b>\n"
+        "<code>Button Title | https://example.com</code>\n\n"
+        "<i>Put one button per line. If you do not need buttons, tap Skip Buttons.</i>"
+    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("⏩ Skip Buttons", callback_data="schedule_no_buttons")],
+        [InlineKeyboardButton("❌ Cancel Schedule", callback_data="admin_panel")],
+    ])
+    await send_or_edit(update, text, keyboard)
+
+
+async def prompt_schedule_time(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    draft = context.user_data.get(SCHEDULE_DRAFT_KEY, {})
+    summary = draft.get("summary", "Scheduled post")
+    buttons_text = draft.get("buttons_text")
+    context.user_data["state"] = STATE_SCHEDULE_TIME
+
+    text = (
+        "🗓 <b>Schedule Time</b>\n\n"
+        f"📌 <b>Post:</b> {html.escape(str(summary))}\n\n"
+        f"🔘 <b>Buttons:</b> {'Yes' if buttons_text else 'No'}\n\n"
+        "Enter the publish time using one of these formats:\n"
+        "• <code>2026-08-06 14:30</code>\n"
+        "• <code>06-08-2026 14:30</code>\n"
+        "• <code>in 2 hours</code>\n"
+        "• <code>friday 09:00</code>\n\n"
+        "<i>You can schedule many posts on different days and times.</i>"
+    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 Back", callback_data="admin_schedule_post"), InlineKeyboardButton("❌ Cancel", callback_data="admin_panel")]
+    ])
+    await send_or_edit(update, text, keyboard)
+
+
+def build_schedule_post_record(draft: dict[str, Any], publish_at: datetime) -> dict[str, Any]:
+    return {
+        "id": f"sp_{uuid.uuid4().hex[:10]}",
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "publish_at": publish_at.isoformat(timespec="seconds"),
+        "chat_id": draft.get("chat_id"),
+        "message_id": draft.get("message_id"),
+        "summary": draft.get("summary", ""),
+        "buttons_text": draft.get("buttons_text", ""),
+    }
+
+
+def _scheduled_post_buttons(post: dict[str, Any]) -> Optional[InlineKeyboardMarkup]:
+    buttons_text = (post.get("buttons_text") or "").strip()
+    if not buttons_text:
+        return None
+    return parse_inline_buttons(buttons_text)
+
+
+def _get_due_scheduled_posts(now: Optional[datetime] = None) -> list[dict[str, Any]]:
+    current = now or datetime.now()
+    due: list[dict[str, Any]] = []
+    for post in SCHEDULED_POSTS_CACHE:
+        try:
+            publish_at = datetime.fromisoformat(str(post.get("publish_at", "")))
+        except ValueError:
+            continue
+        if publish_at <= current:
+            due.append(post)
+    due.sort(key=lambda item: item.get("publish_at", ""))
+    return due
+
+
+async def execute_scheduled_post(bot, post: dict[str, Any]) -> dict[str, int]:
+    await sync_registered_users_from_sheets()
+    user_ids = list(REGISTERED_USERS_CACHE.keys())
+    if ADMIN_ID and ADMIN_ID not in user_ids:
+        user_ids.append(ADMIN_ID)
+
+    success_count = 0
+    fail_count = 0
+    markup = _scheduled_post_buttons(post)
+
+    for uid_str in user_ids:
+        try:
+            target_id = int(uid_str)
+            copied = await safe_telegram_call(
+                lambda: bot.copy_message(
+                    chat_id=target_id,
+                    from_chat_id=post["chat_id"],
+                    message_id=post["message_id"],
+                    reply_markup=markup,
+                ),
+                f"scheduled post to {target_id}",
+            )
+            if copied:
+                success_count += 1
+            else:
+                fail_count += 1
+        except Exception as err:
+            logger.warning("Scheduled post failed for user %s: %s", uid_str, err)
+            fail_count += 1
+        await asyncio.sleep(0.05)
+
+    return {"success": success_count, "failed": fail_count}
+
+
+async def process_due_scheduled_posts(application: Application) -> None:
+    due_posts = _get_due_scheduled_posts()
+    if not due_posts:
+        return
+
+    for post in due_posts:
+        post_id = str(post.get("id", ""))
+        try:
+            result = await execute_scheduled_post(application.bot, post)
+            logger.info(
+                "Delivered scheduled post %s | success=%s | failed=%s",
+                post_id,
+                result["success"],
+                result["failed"],
+            )
+        except Exception as exc:  # pragma: no cover
+            logger.exception("Scheduled post %s failed: %s", post_id, exc)
+            continue
+        remove_scheduled_post(post_id)
+
+
+async def scheduled_posts_loop(application: Application) -> None:
+    while True:
+        try:
+            await process_due_scheduled_posts(application)
+        except Exception as exc:  # pragma: no cover
+            logger.exception("Scheduled posts loop error: %s", exc)
+        await asyncio.sleep(30)
+
+
+async def show_scheduled_posts(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not SCHEDULED_POSTS_CACHE:
+        await send_or_edit(
+            update,
+            "🗂 <b>Scheduled Posts</b>\n\nNo upcoming scheduled posts found.",
+            InlineKeyboardMarkup([
+                [InlineKeyboardButton("🗓 Schedule New Post", callback_data="admin_schedule_post")],
+                [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")],
+            ]),
+        )
+        return
+
+    upcoming = sorted(SCHEDULED_POSTS_CACHE, key=lambda item: item.get("publish_at", ""))
+    lines = ["🗂 <b>Scheduled Posts</b>", ""]
+    keyboard_rows = []
+    for post in upcoming[:10]:
+        post_id = str(post.get("id", ""))[:8]
+        try:
+            publish_at = datetime.fromisoformat(str(post.get("publish_at", "")))
+            when_text = format_schedule_datetime(publish_at)
+        except ValueError:
+            when_text = str(post.get("publish_at", "Unknown"))
+        summary = html.escape(str(post.get("summary", "Scheduled post")))
+        lines.append(f"• <code>{post_id}</code> | <b>{when_text}</b>")
+        lines.append(f"  {summary}")
+        if post.get("buttons_text"):
+            lines.append("  <i>Inline buttons attached</i>")
+        lines.append("")
+        keyboard_rows.append([InlineKeyboardButton(f"❌ Cancel {post_id}", callback_data=f"schedule_cancel|{post.get('id')}")])
+
+    keyboard_rows.append([InlineKeyboardButton("🗓 Schedule New Post", callback_data="admin_schedule_post")])
+    keyboard_rows.append([InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")])
+
+    await send_or_edit(update, "\n".join(lines).strip(), InlineKeyboardMarkup(keyboard_rows))
 
 
 async def show_broadcast_preview(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1832,6 +2097,32 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
             return
         await start_schedule_post_wizard(update, context)
         return
+    if data == "admin_scheduled_posts":
+        if str(query.from_user.id) != ADMIN_ID:
+            await query.answer("⛔ Admin only.", show_alert=True)
+            return
+        await show_scheduled_posts(update, context)
+        return
+    if data == "schedule_no_buttons":
+        if str(query.from_user.id) != ADMIN_ID:
+            await query.answer("⛔ Admin only.", show_alert=True)
+            return
+        draft = context.user_data.get(SCHEDULE_DRAFT_KEY, {})
+        draft["buttons_text"] = ""
+        draft["markup"] = None
+        context.user_data[SCHEDULE_DRAFT_KEY] = draft
+        await prompt_schedule_time(update, context)
+        return
+    if data.startswith("schedule_cancel|"):
+        if str(query.from_user.id) != ADMIN_ID:
+            await query.answer("⛔ Admin only.", show_alert=True)
+            return
+        post_id = data.split("|", 1)[1]
+        if remove_scheduled_post(post_id):
+            await send_or_edit(update, "✅ Scheduled post canceled.", admin_dashboard_inline())
+        else:
+            await send_or_edit(update, "❌ I could not find that scheduled post.", admin_dashboard_inline())
+        return
     if data == "broadcast_no_buttons":
         if str(query.from_user.id) != ADMIN_ID:
             await query.answer("⛔ Admin only.", show_alert=True)
@@ -2137,6 +2428,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             "summary": summarize_message(message),
         }
         context.user_data[SCHEDULE_DRAFT_KEY] = draft
+        await prompt_schedule_buttons(update, context)
+        return
         context.user_data["state"] = STATE_SCHEDULE_TIME
 
         await safe_telegram_call(
@@ -2150,6 +2443,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             ),
             "asking for scheduled publish time"
         )
+        return
+
+    if state == STATE_SCHEDULE_BUTTONS:
+        if str(user.id) != ADMIN_ID:
+            context.user_data["state"] = None
+            return
+
+        draft = context.user_data.get(SCHEDULE_DRAFT_KEY, {})
+        draft["buttons_text"] = text
+        draft["markup"] = parse_inline_buttons(text)
+        context.user_data[SCHEDULE_DRAFT_KEY] = draft
+        await prompt_schedule_time(update, context)
         return
 
     if state == STATE_SCHEDULE_TIME:
@@ -2173,6 +2478,22 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             return
 
         draft = context.user_data.get(SCHEDULE_DRAFT_KEY, {})
+        scheduled_post = build_schedule_post_record(draft, schedule_time)
+        add_scheduled_post(scheduled_post)
+        context.user_data[SCHEDULE_DRAFT_KEY] = scheduled_post
+        context.user_data["state"] = None
+
+        await message.reply_text(
+            f"✅ Post scheduled for <b>{format_schedule_datetime(schedule_time)}</b>."
+            " I will publish it to all registered members at that time.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🗓 Schedule Another Post", callback_data="admin_schedule_post")],
+                [InlineKeyboardButton("🗂 View Scheduled Posts", callback_data="admin_scheduled_posts")],
+                [InlineKeyboardButton("🟢 Main Menu", callback_data="nav_home")],
+            ]),
+        )
+        return
         draft["publish_at"] = schedule_time.isoformat()
         context.user_data[SCHEDULE_DRAFT_KEY] = draft
         context.user_data["state"] = None
@@ -2489,6 +2810,10 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def post_init(application: Application) -> None:
     logger.info("Vertex SACCO Bot started successfully.")
+    await process_due_scheduled_posts(application)
+    if not getattr(application, "_scheduled_posts_loop_started", False):
+        application._scheduled_posts_loop_started = True
+        asyncio.create_task(scheduled_posts_loop(application))
     if ADMIN_ID:
         try:
             await safe_telegram_call(
@@ -2555,6 +2880,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
 def main() -> None:
     load_content()
     load_registered_users_cache()
+    load_scheduled_posts_cache()
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN is missing. Set it in your .env file.")
 
